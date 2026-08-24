@@ -1,0 +1,14 @@
+.git
+frontend
+node_modules
+dist
+backend/.venv
+.venv
+outputs
+data
+*.tif
+*.tiff
+*.png
+*.safetensor
+__pycache__
+.pytest_cache

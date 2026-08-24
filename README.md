@@ -1,3 +1,13 @@
+---
+title: GeoSR SEN2SRLite API
+emoji: 🛰️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # GeoSR — SIH 2026 MVP
 
 > Deep Learning Based Super Resolution Mapping from Medium Resolution Satellite Imagery (10 m to 2.5 m)
