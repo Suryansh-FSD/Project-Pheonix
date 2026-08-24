@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Tuple, Optional
 
 import numpy as np
 import rasterio
@@ -40,6 +40,7 @@ class RasterValidationResult:
     transform: Affine
     bounds: Tuple[float, float, float, float]
     source_profile: dict[str, Any]
+    dataset_mask: np.ndarray
 
 
 def validate_input(input_path: Path) -> RasterValidationResult:
@@ -51,13 +52,16 @@ def validate_input(input_path: Path) -> RasterValidationResult:
             _validate_reflectance_range(raw, dataset.nodata)
 
             data = np.asarray(raw[:4], dtype=np.float32)
+            dataset_mask = dataset.dataset_mask() > 0
+
             if dataset.nodata is not None and np.isfinite(dataset.nodata):
-                data[data == np.float32(dataset.nodata)] = 0.0
+                nodata_mask = (raw[:4] != np.float32(dataset.nodata)).all(axis=0)
+                dataset_mask &= nodata_mask
 
-            # Nan / Inf protection
-            data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
+            # Clean raw data for inference while maintaining raw validity mask
+            cleaned_data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
 
-            valid_mask = _valid_pixel_mask(raw[:4], dataset.nodata)
+            valid_mask = _valid_pixel_mask(raw[:4], dataset.nodata) & dataset_mask
             profile = dict(dataset.profile)
             profile["valid_mask"] = valid_mask
             profile["descriptions"] = tuple(dataset.descriptions) if dataset.descriptions else BAND_DESCRIPTIONS
@@ -72,11 +76,12 @@ def validate_input(input_path: Path) -> RasterValidationResult:
             )
 
             return RasterValidationResult(
-                data=data,
+                data=cleaned_data,
                 crs=dataset.crs.to_string(),
                 transform=dataset.transform,
                 bounds=bounds,
                 source_profile=profile,
+                dataset_mask=valid_mask,
             )
     except rasterio.errors.RasterioIOError as exc:
         raise RasterValidationError(ErrorCode.INVALID_FILE, f"Could not read GeoTIFF: {exc}") from exc
@@ -110,7 +115,6 @@ def write_super_resolved_geotiff(
         for k, v in source_profile.items()
         if k not in {"tags", "band_tags", "descriptions", "valid_mask"}
     }
-    # Scale affine transform: pixel resolution divided by 4 (10m -> 2.5m)
     scaled_transform = transform * Affine.scale(1.0 / SCALE_FACTOR, 1.0 / SCALE_FACTOR)
 
     profile.update(
@@ -154,67 +158,99 @@ def write_super_resolved_geotiff(
     return destination
 
 
-def generate_rgb_preview(array_4band: np.ndarray, output_png: Path) -> Path:
-    """Generate 8-bit natural-color RGB (B04, B03, B02) PNG preview."""
+def generate_rgb_preview(array_4band: np.ndarray, output_png: Path, mask: Optional[np.ndarray] = None) -> Path:
+    """Generate 8-bit natural-color RGB (B04, B03, B02) PNG preview with alpha transparency for invalid pixels."""
     analytical = np.asarray(array_4band, dtype=np.float32)
     if analytical.ndim != 3 or analytical.shape[0] != 4:
         raise ValueError(f"Expected array of shape (4, H, W), got {analytical.shape}")
 
     # B04 (Red=0), B03 (Green=1), B02 (Blue=2)
-    stretched_bands = [_percentile_stretch(analytical[i]) for i in range(3)]
-    rgb = np.stack(stretched_bands, axis=-1)
+    stretched_bands = [_percentile_stretch(analytical[i], mask) for i in range(3)]
+    
+    if mask is not None:
+        alpha = np.where(mask, 255, 0).astype(np.uint8)
+        rgba = np.stack(stretched_bands + [alpha], axis=-1)
+        mode = "RGBA"
+    else:
+        rgba = np.stack(stretched_bands, axis=-1)
+        mode = "RGB"
 
     destination = Path(output_png)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgb, mode="RGB").save(destination, format="PNG")
+    Image.fromarray(rgba, mode=mode).save(destination, format="PNG")
     return destination
 
 
-def generate_false_color_preview(array_4band: np.ndarray, output_png: Path) -> Path:
-    """Generate 8-bit False-Color NIR/Red/Green composite (Red=B08, Green=B04, Blue=B03)."""
+def generate_false_color_preview(array_4band: np.ndarray, output_png: Path, mask: Optional[np.ndarray] = None) -> Path:
+    """Generate False-Color NIR/Red/Green composite (Red=B08, Green=B04, Blue=B03) with alpha transparency."""
     analytical = np.asarray(array_4band, dtype=np.float32)
     if analytical.ndim != 3 or analytical.shape[0] != 4:
         raise ValueError(f"Expected array of shape (4, H, W), got {analytical.shape}")
 
     # Red=B08 (idx 3), Green=B04 (idx 0), Blue=B03 (idx 1)
-    stretched_r = _percentile_stretch(analytical[3])
-    stretched_g = _percentile_stretch(analytical[0])
-    stretched_b = _percentile_stretch(analytical[1])
-    fc = np.stack([stretched_r, stretched_g, stretched_b], axis=-1)
+    stretched_r = _percentile_stretch(analytical[3], mask)
+    stretched_g = _percentile_stretch(analytical[0], mask)
+    stretched_b = _percentile_stretch(analytical[1], mask)
+
+    if mask is not None:
+        alpha = np.where(mask, 255, 0).astype(np.uint8)
+        rgba = np.stack([stretched_r, stretched_g, stretched_b, alpha], axis=-1)
+        mode = "RGBA"
+    else:
+        rgba = np.stack([stretched_r, stretched_g, stretched_b], axis=-1)
+        mode = "RGB"
 
     destination = Path(output_png)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(fc, mode="RGB").save(destination, format="PNG")
+    Image.fromarray(rgba, mode=mode).save(destination, format="PNG")
     return destination
 
 
-def calculate_ndvi(array_4band: np.ndarray) -> np.ndarray:
+def calculate_ndvi(array_4band: np.ndarray, mask: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
     """
     Calculate NDVI strictly from raw surface reflectance:
-    NDVI = (B08 - B04) / (B08 + B04 + 1e-6)
+    NDVI = (B08 - B04) / (B08 + B04)
     B04 is index 0 (Red), B08 is index 3 (NIR).
+    
+    Returns (ndvi_array, valid_mask):
+    - Invalid pixels remain NaN in ndvi_array.
+    - Valid denominators require abs(B08 + B04) > 1e-6.
     """
     analytical = np.asarray(array_4band, dtype=np.float32)
     b04 = analytical[0]  # Red
     b08 = analytical[3]  # NIR
 
     denom = b08 + b04
-    valid = np.isfinite(b04) & np.isfinite(b08) & (denom > 0)
+    denom_valid = np.abs(denom) > 1e-6
+    finite_valid = np.isfinite(b04) & np.isfinite(b08)
 
-    ndvi = np.zeros_like(b04, dtype=np.float32)
-    ndvi[valid] = (b08[valid] - b04[valid]) / (denom[valid] + 1e-7)
-    ndvi = np.clip(ndvi, -1.0, 1.0)
-    return ndvi
+    valid_mask = finite_valid & denom_valid
+    if mask is not None:
+        valid_mask &= (mask > 0)
+
+    ndvi = np.full_like(b04, np.nan, dtype=np.float32)
+    ndvi[valid_mask] = np.clip(
+        (b08[valid_mask] - b04[valid_mask]) / denom[valid_mask],
+        -1.0,
+        1.0,
+    )
+    return ndvi, valid_mask
 
 
-def generate_ndvi_preview(array_4band: np.ndarray, output_png: Path) -> Tuple[Path, dict[str, Any]]:
+def generate_ndvi_preview(
+    array_4band: np.ndarray,
+    output_png: Path,
+    mask: Optional[np.ndarray] = None,
+) -> Tuple[Path, dict[str, Any]]:
     """
-    Calculate NDVI and generate colorized RdYlGn palette PNG preview.
+    Calculate NDVI and generate colorized RdYlGn palette PNG preview with transparent invalid pixels.
     Returns preview path and analytical vegetation metrics.
     """
-    ndvi = calculate_ndvi(array_4band)
-    valid_mask = np.isfinite(ndvi)
+    ndvi, valid_mask = calculate_ndvi(array_4band, mask)
     valid_count = int(np.count_nonzero(valid_mask))
+
+    h, w = ndvi.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
 
     if valid_count > 0:
         valid_ndvi = ndvi[valid_mask]
@@ -222,40 +258,40 @@ def generate_ndvi_preview(array_4band: np.ndarray, output_png: Path) -> Tuple[Pa
         max_v = float(np.max(valid_ndvi))
         mean_v = float(np.mean(valid_ndvi))
         veg_fraction = float(np.count_nonzero(valid_ndvi > 0.3) / valid_count)
+
+        # Colorize valid NDVI [-0.2, 0.8] normalized to [0, 1]
+        for y in range(h):
+            for x in range(w):
+                if not valid_mask[y, x]:
+                    rgba[y, x] = [0, 0, 0, 0]  # Fully transparent
+                    continue
+
+                v = ndvi[y, x]
+                norm_val = np.clip((v - (-0.2)) / (0.8 - (-0.2)), 0.0, 1.0)
+                if norm_val < 0.3:  # Water / Bare
+                    rgba[y, x] = [int(160 * (1 - norm_val)), int(120 * (1 - norm_val)), int(80 + 100 * norm_val), 255]
+                elif norm_val < 0.6:  # Sparse / Soil / Grass
+                    t = (norm_val - 0.3) / 0.3
+                    rgba[y, x] = [int(220 * (1 - 0.5 * t)), int(200 + 40 * t), 50, 255]
+                else:  # Dense Vegetation
+                    t = (norm_val - 0.6) / 0.4
+                    rgba[y, x] = [int(40 * (1 - t)), int(140 + 100 * t), int(40 * (1 - t)), 255]
     else:
         min_v = 0.0
         max_v = 0.0
         mean_v = 0.0
         veg_fraction = 0.0
 
-    # Colorize NDVI [-0.2, 0.8] normalized to [0, 1]
-    norm_ndvi = np.clip((ndvi - (-0.2)) / (0.8 - (-0.2)), 0.0, 1.0)
-    h, w = ndvi.shape
-    rgb = np.zeros((h, w, 3), dtype=np.uint8)
-
-    # Colormap: low NDVI (<0.1) brown/blue, medium (0.1..0.4) yellow, high (>0.4) green
-    for y in range(h):
-        for x in range(w):
-            val = norm_ndvi[y, x]
-            if val < 0.3:  # Water / Bare
-                rgb[y, x] = [int(160 * (1 - val)), int(120 * (1 - val)), int(80 + 100 * val)]
-            elif val < 0.6:  # Sparse / Soil / Grass
-                t = (val - 0.3) / 0.3
-                rgb[y, x] = [int(220 * (1 - 0.5 * t)), int(200 + 40 * t), int(50)]
-            else:  # Dense Vegetation
-                t = (val - 0.6) / 0.4
-                rgb[y, x] = [int(40 * (1 - t)), int(140 + 100 * t), int(40 * (1 - t))]
-
     destination = Path(output_png)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgb, mode="RGB").save(destination, format="PNG")
+    Image.fromarray(rgba, mode="RGBA").save(destination, format="PNG")
 
     stats = {
         "valid_pixel_count": valid_count,
-        "min_ndvi": round(min_v, 4),
-        "max_ndvi": round(max_v, 4),
-        "mean_ndvi": round(mean_v, 4),
-        "vegetation_fraction": round(veg_fraction, 4),
+        "min_ndvi": round(min_v, 4) if valid_count > 0 else 0.0,
+        "max_ndvi": round(max_v, 4) if valid_count > 0 else 0.0,
+        "mean_ndvi": round(mean_v, 4) if valid_count > 0 else 0.0,
+        "vegetation_fraction": round(veg_fraction, 4) if valid_count > 0 else 0.0,
         "threshold_used": 0.3,
     }
     return destination, stats
@@ -266,48 +302,64 @@ def generate_change_preview(
     after_4band: np.ndarray,
     threshold: float,
     output_png: Path,
+    mask_before: Optional[np.ndarray] = None,
+    mask_after: Optional[np.ndarray] = None,
 ) -> Tuple[Path, dict[str, Any]]:
     """
     Screen spectral change between two aligned 4-band rasters using delta NDVI.
+    Strictly uses only valid paired pixels as denominator for statistics.
     """
-    ndvi_before = calculate_ndvi(before_4band)
-    ndvi_after = calculate_ndvi(after_4band)
+    ndvi_before, valid_before = calculate_ndvi(before_4band, mask_before)
+    ndvi_after, valid_after = calculate_ndvi(after_4band, mask_after)
 
-    delta = ndvi_after - ndvi_before
-    total_pixels = int(delta.size)
+    valid_pair = valid_before & valid_after
+    valid_pair_count = int(np.count_nonzero(valid_pair))
 
-    gain_mask = delta >= threshold
-    loss_mask = delta <= -threshold
-    changed_mask = np.abs(delta) >= threshold
+    if valid_pair_count == 0:
+        raise RasterValidationError(
+            ErrorCode.NO_VALID_PIXELS,
+            "No valid paired pixels found for change detection between observations.",
+        )
+
+    delta_valid = ndvi_after[valid_pair] - ndvi_before[valid_pair]
+
+    gain_mask = delta_valid >= threshold
+    loss_mask = delta_valid <= -threshold
+    changed_mask = np.abs(delta_valid) >= threshold
 
     changed_count = int(np.count_nonzero(changed_mask))
     gain_count = int(np.count_nonzero(gain_mask))
     loss_count = int(np.count_nonzero(loss_mask))
 
-    changed_pct = round((changed_count / total_pixels) * 100.0, 2)
-    gain_pct = round((gain_count / total_pixels) * 100.0, 2)
-    loss_pct = round((loss_count / total_pixels) * 100.0, 2)
-    mean_delta = round(float(np.mean(delta)), 4)
+    changed_pct = round((changed_count / valid_pair_count) * 100.0, 2)
+    gain_pct = round((gain_count / valid_pair_count) * 100.0, 2)
+    loss_pct = round((loss_count / valid_pair_count) * 100.0, 2)
+    mean_delta = round(float(np.mean(delta_valid)), 4)
 
     # Colorize change map
-    h, w = delta.shape
-    rgb = np.zeros((h, w, 4), dtype=np.uint8)  # RGBA
+    h, w = valid_pair.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
 
     for y in range(h):
         for x in range(w):
-            d = delta[y, x]
+            if not valid_pair[y, x]:
+                rgba[y, x] = [0, 0, 0, 0]  # Transparent invalid pixel
+                continue
+
+            d = ndvi_after[y, x] - ndvi_before[y, x]
             if d >= threshold:  # Vegetation Gain (Green)
-                rgb[y, x] = [34, 197, 94, 230]
+                rgba[y, x] = [34, 197, 94, 235]
             elif d <= -threshold:  # Vegetation Loss (Red)
-                rgb[y, x] = [239, 68, 68, 230]
+                rgba[y, x] = [239, 68, 68, 235]
             else:  # Neutral
-                rgb[y, x] = [100, 116, 139, 40]
+                rgba[y, x] = [100, 116, 139, 45]
 
     destination = Path(output_png)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgb, mode="RGBA").save(destination, format="PNG")
+    Image.fromarray(rgba, mode="RGBA").save(destination, format="PNG")
 
     stats = {
+        "valid_pixel_count": valid_pair_count,
         "changed_pixel_count": changed_count,
         "changed_percentage": changed_pct,
         "vegetation_gain_percentage": gain_pct,
@@ -336,12 +388,12 @@ def process_live_geotiff(
     # 1. Validate input GeoTIFF
     val_result = validate_input(input_path)
 
-    # 2. Generate LR RGB & False Color & NDVI Previews
-    generate_rgb_preview(val_result.data, lr_preview_path)
+    # 2. Generate LR RGB & False Color & NDVI Previews with mask
+    generate_rgb_preview(val_result.data, lr_preview_path, val_result.dataset_mask)
     if lr_fc_path:
-        generate_false_color_preview(val_result.data, lr_fc_path)
+        generate_false_color_preview(val_result.data, lr_fc_path, val_result.dataset_mask)
     if lr_ndvi_path:
-        generate_ndvi_preview(val_result.data, lr_ndvi_path)
+        generate_ndvi_preview(val_result.data, lr_ndvi_path, val_result.dataset_mask)
 
     # 3. Normalize reflectance to [0.0, 1.0]
     norm_data = normalize_reflectance(val_result.data)
@@ -359,12 +411,15 @@ def process_live_geotiff(
     # 7. Write super-resolved GeoTIFF in [0, 10000] scale
     write_super_resolved_geotiff(output_geotiff_path, sr_reflectance, val_result.source_profile)
 
-    # 8. Generate SR RGB & False Color & NDVI Previews
-    generate_rgb_preview(sr_reflectance, sr_preview_path)
+    # Calculate 4x upsampled valid mask for SR outputs
+    sr_mask = np.repeat(np.repeat(val_result.dataset_mask, SCALE_FACTOR, axis=0), SCALE_FACTOR, axis=1)
+
+    # 8. Generate SR RGB & False Color & NDVI Previews with SR mask
+    generate_rgb_preview(sr_reflectance, sr_preview_path, sr_mask)
     if sr_fc_path:
-        generate_false_color_preview(sr_reflectance, sr_fc_path)
+        generate_false_color_preview(sr_reflectance, sr_fc_path, sr_mask)
     if sr_ndvi_path:
-        _, ndvi_stats = generate_ndvi_preview(sr_reflectance, sr_ndvi_path)
+        _, ndvi_stats = generate_ndvi_preview(sr_reflectance, sr_ndvi_path, sr_mask)
     else:
         ndvi_stats = {}
 
@@ -466,9 +521,12 @@ def _band_code(desc: str | None) -> str:
     return "" if desc is None else desc.strip().upper().split(maxsplit=1)[0]
 
 
-def _percentile_stretch(band: np.ndarray) -> np.ndarray:
+def _percentile_stretch(band: np.ndarray, mask: Optional[np.ndarray] = None) -> np.ndarray:
     values = np.asarray(band, dtype=np.float32)
     finite = np.isfinite(values)
+    if mask is not None:
+        finite &= (mask > 0)
+
     stretched = np.zeros(values.shape, dtype=np.uint8)
     if not finite.any():
         return stretched

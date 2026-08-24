@@ -6,8 +6,9 @@ import type { ChangeDetectionResponse } from '../types/api';
 export const DetectChangesPage: React.FC = () => {
   const { recentJobs, runChangeDetection, resolveAssetUrl, setRoute } = useJob();
 
-  const completedJobs = recentJobs.filter(
-    (j) => j.status === 'completed' || j.status === 'cached'
+  // Strictly filter completed live enhancement jobs (no cached jobs)
+  const completedLiveJobs = recentJobs.filter(
+    (j) => j.status === 'completed' && j.execution_mode === 'live' && !j.cached
   );
 
   const [beforeJobId, setBeforeJobId] = useState<string>('');
@@ -18,22 +19,28 @@ export const DetectChangesPage: React.FC = () => {
   const [result, setResult] = useState<ChangeDetectionResponse | null>(null);
 
   useEffect(() => {
-    if (completedJobs.length >= 2) {
+    if (completedLiveJobs.length >= 2) {
       if (!beforeJobId || !afterJobId || beforeJobId === afterJobId) {
-        setBeforeJobId(completedJobs[0].job_id);
-        setAfterJobId(completedJobs[1].job_id);
+        setBeforeJobId(completedLiveJobs[0].job_id);
+        setAfterJobId(completedLiveJobs[1].job_id);
       }
-    } else if (completedJobs.length === 1) {
-      setBeforeJobId(completedJobs[0].job_id);
+    } else if (completedLiveJobs.length === 1) {
+      setBeforeJobId(completedLiveJobs[0].job_id);
     }
-  }, [completedJobs, beforeJobId, afterJobId]);
+  }, [completedLiveJobs, beforeJobId, afterJobId]);
+
+  const activeBeforeId = beforeJobId || completedLiveJobs[0]?.job_id || '';
+  const activeAfterId = afterJobId || (completedLiveJobs.length > 1 ? completedLiveJobs[1]?.job_id : '');
 
   const handleRunChangeDetection = async () => {
-    if (!beforeJobId || !afterJobId) {
+    const bId = activeBeforeId;
+    const aId = activeAfterId;
+
+    if (!bId || !aId) {
       setErrorMsg('Please select both a Before and an After observation.');
       return;
     }
-    if (beforeJobId === afterJobId) {
+    if (bId === aId) {
       setErrorMsg('Before and After must be two different observations.');
       return;
     }
@@ -43,8 +50,8 @@ export const DetectChangesPage: React.FC = () => {
 
     try {
       const res = await runChangeDetection({
-        before_job_id: beforeJobId,
-        after_job_id: afterJobId,
+        before_job_id: bId,
+        after_job_id: aId,
         threshold: threshold,
       });
       setResult(res);
@@ -56,10 +63,29 @@ export const DetectChangesPage: React.FC = () => {
     }
   };
 
-  const beforeJob = completedJobs.find((j) => j.job_id === beforeJobId);
-  const afterJob = completedJobs.find((j) => j.job_id === afterJobId);
+  const beforeJob = completedLiveJobs.find((j) => j.job_id === activeBeforeId);
+  const afterJob = completedLiveJobs.find((j) => j.job_id === activeAfterId);
 
-  if (completedJobs.length < 2) {
+  const renderMetadata = (job: typeof beforeJob) => {
+    if (!job || !job.metadata) {
+      return <p className="text-[11px] text-slate-400 italic">Metadata unavailable</p>;
+    }
+    const { crs, output_shape, output_pixel_size_m, bounds } = job.metadata;
+    return (
+      <div className="text-[11px] text-[#6D756F] space-y-0.5 pt-1 font-mono">
+        <p>CRS: <span className="text-[#0D241A]">{crs || 'Metadata unavailable'}</span></p>
+        <p>Shape: <span className="text-[#0D241A]">{output_shape ? `${output_shape[1]} × ${output_shape[2]}` : 'Metadata unavailable'}</span></p>
+        <p>Resolution: <span className="text-[#0D241A]">{output_pixel_size_m ? `${output_pixel_size_m}m` : 'Metadata unavailable'}</span></p>
+        {bounds && (
+          <p className="truncate text-[10px] text-slate-500">
+            Bounds: [{bounds.map((b) => b.toFixed(1)).join(', ')}]
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  if (completedLiveJobs.length < 2) {
     return (
       <div className="space-y-6">
         <div>
@@ -111,7 +137,7 @@ export const DetectChangesPage: React.FC = () => {
       {/* Observation Selector Card */}
       <section className="p-6 rounded-2xl bg-[#FCFBF7] border border-[#D9DDD2] shadow-2xs space-y-5">
         <h2 className="font-display text-base font-bold text-[#0D241A]">
-          Select Aligned Observations
+          Select Aligned Live Observations
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
@@ -121,22 +147,17 @@ export const DetectChangesPage: React.FC = () => {
               1. Baseline (Before) Observation:
             </label>
             <select
-              value={beforeJobId}
+              value={activeBeforeId}
               onChange={(e) => setBeforeJobId(e.target.value)}
               className="w-full p-2.5 rounded-xl bg-white border border-[#D9DDD2] text-xs font-mono text-[#0D241A] focus:outline-none focus:ring-2 focus:ring-[#00613E]"
             >
-              {completedJobs.map((j) => (
+              {completedLiveJobs.map((j) => (
                 <option key={j.job_id} value={j.job_id}>
-                  Job {j.job_id.slice(0, 8)} ({j.metadata?.crs || 'EPSG:32630'} · 2.5m)
+                  Job {j.job_id.slice(0, 8)} ({j.metadata?.crs || 'Metadata unavailable'})
                 </option>
               ))}
             </select>
-            {beforeJob?.metadata && (
-              <div className="text-[11px] text-[#6D756F] space-y-0.5 pt-1">
-                <p>CRS: <span className="font-mono text-[#0D241A]">{beforeJob.metadata.crs}</span></p>
-                <p>Grid: <span className="font-mono text-[#0D241A]">512 × 512 @ 2.5m</span></p>
-              </div>
-            )}
+            {renderMetadata(beforeJob)}
           </div>
 
           {/* After Job Selection */}
@@ -145,22 +166,17 @@ export const DetectChangesPage: React.FC = () => {
               2. Comparison (After) Observation:
             </label>
             <select
-              value={afterJobId}
+              value={activeAfterId}
               onChange={(e) => setAfterJobId(e.target.value)}
               className="w-full p-2.5 rounded-xl bg-white border border-[#D9DDD2] text-xs font-mono text-[#0D241A] focus:outline-none focus:ring-2 focus:ring-[#00613E]"
             >
-              {completedJobs.map((j) => (
+              {completedLiveJobs.map((j) => (
                 <option key={j.job_id} value={j.job_id}>
-                  Job {j.job_id.slice(0, 8)} ({j.metadata?.crs || 'EPSG:32630'} · 2.5m)
+                  Job {j.job_id.slice(0, 8)} ({j.metadata?.crs || 'Metadata unavailable'})
                 </option>
               ))}
             </select>
-            {afterJob?.metadata && (
-              <div className="text-[11px] text-[#6D756F] space-y-0.5 pt-1">
-                <p>CRS: <span className="font-mono text-[#0D241A]">{afterJob.metadata.crs}</span></p>
-                <p>Grid: <span className="font-mono text-[#0D241A]">512 × 512 @ 2.5m</span></p>
-              </div>
-            )}
+            {renderMetadata(afterJob)}
           </div>
         </div>
 
@@ -183,7 +199,7 @@ export const DetectChangesPage: React.FC = () => {
             className="w-full accent-[#00613E] cursor-pointer"
           />
           <p className="text-[11px] text-[#6D756F]">
-            Pixels with |NDVI_after - NDVI_before| ≥ {threshold.toFixed(2)} are classified as spectral change.
+            Only paired valid pixels where |NDVI_after - NDVI_before| ≥ {threshold.toFixed(2)} are classified as spectral change.
           </p>
         </div>
 
@@ -200,7 +216,7 @@ export const DetectChangesPage: React.FC = () => {
         <button
           type="button"
           onClick={handleRunChangeDetection}
-          disabled={loading || beforeJobId === afterJobId}
+          disabled={loading || activeBeforeId === activeAfterId}
           className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold bg-[#00613E] hover:bg-[#004F33] text-white shadow-2xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <GitCompare className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -217,7 +233,7 @@ export const DetectChangesPage: React.FC = () => {
                 Spectral Change Map
               </h2>
               <p className="text-[11px] text-[#6D756F]">
-                Observation {result.before_job_id.slice(0, 8)} ➔ {result.after_job_id.slice(0, 8)} (Threshold: {result.threshold})
+                Observation {result.before_job_id.slice(0, 8)} ➔ {result.after_job_id.slice(0, 8)} (Threshold: {result.threshold} · Valid Paired Pixels: {result.valid_pixel_count.toLocaleString()})
               </p>
             </div>
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#16744A] bg-[#EAF0E3] px-2.5 py-1 rounded-full border border-[#D9DDD2]">
@@ -237,7 +253,7 @@ export const DetectChangesPage: React.FC = () => {
               <strong className="text-rose-900 font-mono text-base">-{result.vegetation_loss_percentage}%</strong>
             </div>
             <div className="p-3 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2]">
-              <span className="text-[#6D756F] text-[11px] block">Total Changed Pixels</span>
+              <span className="text-[#6D756F] text-[11px] block">Total Changed (of Valid)</span>
               <strong className="text-[#0D241A] font-mono text-base">{result.changed_percentage}%</strong>
             </div>
             <div className="p-3 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2]">
@@ -276,7 +292,7 @@ export const DetectChangesPage: React.FC = () => {
             </div>
 
             <p className="text-[11px] text-[#6D756F] italic">
-              {result.statement}
+              {result.statement} Statistics denominator strictly consists of {result.valid_pixel_count.toLocaleString()} valid paired pixels.
             </p>
           </div>
         </section>

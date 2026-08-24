@@ -77,13 +77,14 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
     threshold_used: 0.3,
     lr_ndvi_url: '/api/jobs/job-1234-test/previews/lr_ndvi.png',
     sr_ndvi_url: '/api/jobs/job-1234-test/previews/sr_ndvi.png',
-    statement: 'Spectral vegetation screening; not ground-truth botanical classification.',
+    statement: 'Spectral vegetation screening based on Sentinel-2 B08/B04 reflectance; not ground-truth botanical classification.',
   };
 
   const mockChangeResponse: ChangeDetectionResponse = {
     before_job_id: 'job-1234-test',
     after_job_id: 'job-5678-test',
     threshold: 0.15,
+    valid_pixel_count: 262144,
     changed_pixel_count: 52428,
     changed_percentage: 20.0,
     vegetation_gain_percentage: 15.5,
@@ -163,7 +164,6 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Compare Results/i);
     });
 
-    // Click Vegetation tab
     const vegBtn = screen.getByRole('button', { name: /Vegetation \(NDVI\)/i });
     expect(vegBtn).not.toBeDisabled();
     fireEvent.click(vegBtn);
@@ -173,7 +173,6 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
       expect(screen.getByText(/62.4%/i)).toBeInTheDocument();
     });
 
-    // Click False Color tab
     const fcBtn = screen.getByRole('button', { name: /False Color \(NIR\)/i });
     expect(fcBtn).not.toBeDisabled();
     fireEvent.click(fcBtn);
@@ -183,25 +182,28 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
     });
   });
 
-  it('Detect Changes page requires 2 completed observations and screens change', async () => {
+  it('Detect Changes page requires 2 completed live observations and displays valid paired denominator', async () => {
     localStorage.setItem('geosr_last_job_id', 'job-1234-test');
     localStorage.setItem('geosr_job_history_ids', JSON.stringify(['job-1234-test', 'job-5678-test']));
     render(<App />);
 
+    // Wait for jobs to populate
+    await waitFor(() => {
+      expect(screen.getByText(/2.5m/i)).toBeInTheDocument();
+    });
+
     const nav = screen.getByRole('navigation', { name: /Main Navigation/i });
     fireEvent.click(within(nav).getByRole('button', { name: /Detect Changes/i }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Two-Image Change Detection/i);
-      expect(screen.getByRole('button', { name: /Calculate Change Detection/i })).toBeInTheDocument();
-    });
+    const calcBtn = await screen.findByRole('button', { name: /Calculate Change Detection/i }, { timeout: 3000 });
+    expect(calcBtn).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Calculate Change Detection/i }));
+    fireEvent.click(calcBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/\+15.5%/i)).toBeInTheDocument();
       expect(screen.getByText(/-4.5%/i)).toBeInTheDocument();
       expect(screen.getByText(/20%/i)).toBeInTheDocument();
-    });
+    }, { timeout: 3000 });
   });
 });

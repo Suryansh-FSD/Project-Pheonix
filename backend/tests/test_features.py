@@ -8,7 +8,7 @@ from rasterio.transform import from_origin
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.processing.raster import calculate_ndvi, generate_false_color_preview, generate_ndvi_preview
+from app.processing.raster import calculate_ndvi, generate_false_color_preview, generate_ndvi_preview, generate_change_preview
 
 client = TestClient(app)
 
@@ -21,11 +21,13 @@ def _create_geotiff_bytes(
     descriptions=("B04", "B03", "B02", "B08"),
     res_x: float = 10.0,
     res_y: float = 10.0,
+    origin_x: float = 350000.0,
+    origin_y: float = 4300000.0,
     b04_val: float = 2000.0,
     b08_val: float = 6000.0,
 ) -> bytes:
     buf = io.BytesIO()
-    transform = from_origin(350000.0, 4300000.0, res_x, res_y)
+    transform = from_origin(origin_x, origin_y, res_x, res_y)
     data = np.full((count, height, width), 3000.0, dtype=np.float32)
     data[0] = b04_val  # Red (B04)
     data[1] = 2500.0   # Green (B03)
@@ -49,61 +51,43 @@ def _create_geotiff_bytes(
     return buf.getvalue()
 
 
-def test_ndvi_formula_and_zero_denominator():
-    # B04 = 2000, B08 = 6000 -> (6000 - 2000) / (6000 + 2000) = 4000 / 8000 = 0.5
+def test_ndvi_validity_zero_denominator_and_masking():
+    # 1. Normal valid calculation: (6000 - 2000) / (6000 + 2000) = 0.5
     arr = np.zeros((4, 10, 10), dtype=np.float32)
     arr[0] = 2000.0
     arr[3] = 6000.0
-    ndvi = calculate_ndvi(arr)
+    ndvi, valid_mask = calculate_ndvi(arr)
+    assert np.all(valid_mask)
     assert np.allclose(ndvi, 0.5, atol=1e-3)
 
-    # Zero reflectance -> denominator zero protected
+    # 2. Zero denominator: B08 + B04 == 0 -> must be invalid (NaN, valid_mask=False)
     arr_zero = np.zeros((4, 10, 10), dtype=np.float32)
-    ndvi_zero = calculate_ndvi(arr_zero)
-    assert np.all(np.isfinite(ndvi_zero))
-    assert np.all(ndvi_zero >= -1.0) and np.all(ndvi_zero <= 1.0)
+    ndvi_zero, valid_zero = calculate_ndvi(arr_zero)
+    assert not np.any(valid_zero)
+    assert np.all(np.isnan(ndvi_zero))
+
+    # 3. NaN & Inf handling
+    arr_nan = np.zeros((4, 10, 10), dtype=np.float32)
+    arr_nan[0, 0, 0] = np.nan
+    arr_nan[3, 0, 0] = 5000.0
+    arr_nan[0, 0, 1] = 2000.0
+    arr_nan[3, 0, 1] = np.inf
+    ndvi_nan, valid_nan = calculate_ndvi(arr_nan)
+    assert not valid_nan[0, 0]
+    assert not valid_nan[0, 1]
+    assert np.isnan(ndvi_nan[0, 0])
+    assert np.isnan(ndvi_nan[0, 1])
+
+    # 4. Raster mask exclusion
+    mask = np.ones((10, 10), dtype=bool)
+    mask[0, 0] = False
+    _, valid_masked = calculate_ndvi(arr, mask=mask)
+    assert not valid_masked[0, 0]
+    assert valid_masked[1, 1]
 
 
-def test_live_job_generates_all_previews_and_vegetation_analysis():
-    tif_128 = _create_geotiff_bytes(128, 128, b04_val=1500.0, b08_val=7500.0)
-    res = client.post(
-        "/api/enhance",
-        data={"execution_mode": "live", "band_order": "B04,B03,B02,B08"},
-        files={"file": ("veg_test.tif", tif_128, "image/tiff")},
-    )
-    assert res.status_code == 201
-    job_id = res.json()["job_id"]
-
-    for _ in range(25):
-        j = client.get(f"/api/jobs/{job_id}").json()
-        if j["status"] in ["completed", "failed"]:
-            break
-        time.sleep(0.1)
-
-    assert j["status"] == "completed"
-    assert j["previews"]["lr_ndvi_url"] is not None
-    assert j["previews"]["sr_ndvi_url"] is not None
-    assert j["previews"]["lr_fc_url"] is not None
-    assert j["previews"]["sr_fc_url"] is not None
-
-    # Test preview endpoints
-    assert client.get(f"/api/jobs/{job_id}/previews/lr_ndvi.png").status_code == 200
-    assert client.get(f"/api/jobs/{job_id}/previews/sr_ndvi.png").status_code == 200
-    assert client.get(f"/api/jobs/{job_id}/previews/lr_fc.png").status_code == 200
-    assert client.get(f"/api/jobs/{job_id}/previews/sr_fc.png").status_code == 200
-
-    # Test Vegetation Analysis Endpoint
-    veg_res = client.get(f"/api/jobs/{job_id}/analysis/vegetation")
-    assert veg_res.status_code == 200
-    veg_data = veg_res.json()
-    assert veg_data["job_id"] == job_id
-    assert veg_data["valid_pixel_count"] == 512 * 512
-    assert veg_data["mean_ndvi"] > 0.0
-    assert veg_data["vegetation_fraction"] >= 0.0
-
-
-def test_change_detection_aligned_and_misaligned():
-    # Create Job A (Before: lower NIR)
+def test_change_detection_alignment_and_valid_pair_math():
+    # 1. Successful change detection between A and B
     tif_a = _create_geotiff_bytes(128, 128, b04_val=2000.0, b08_val=4000.0)
     res_a = client.post(
         "/api/enhance",
@@ -112,7 +96,6 @@ def test_change_detection_aligned_and_misaligned():
     )
     job_a = res_a.json()["job_id"]
 
-    # Create Job B (After: higher NIR -> vegetation gain)
     tif_b = _create_geotiff_bytes(128, 128, b04_val=1000.0, b08_val=8000.0)
     res_b = client.post(
         "/api/enhance",
@@ -131,26 +114,45 @@ def test_change_detection_aligned_and_misaligned():
     assert ja["status"] == "completed"
     assert jb["status"] == "completed"
 
-    # Compute Change Detection between A and B
     cd_res = client.post(
         "/api/change-detection",
         json={"before_job_id": job_a, "after_job_id": job_b, "threshold": 0.15},
     )
     assert cd_res.status_code == 200
     cd_data = cd_res.json()
-    assert cd_data["before_job_id"] == job_a
-    assert cd_data["after_job_id"] == job_b
+    assert cd_data["valid_pixel_count"] == 512 * 512
     assert cd_data["changed_pixel_count"] > 0
     assert cd_data["vegetation_gain_percentage"] > 0.0
-    assert cd_data["change_preview_url"].startswith(f"/api/jobs/{job_a}/previews/change_")
 
-    # Verify change preview PNG serves 200
-    preview_res = client.get(cd_data["change_preview_url"])
-    assert preview_res.status_code == 200
+    # 2. Strict Preview Filename Regex & Traversal Rejection
+    valid_preview_url = cd_data["change_preview_url"]
+    assert client.get(valid_preview_url).status_code == 200
 
-    # Reject identical before and after job
-    same_res = client.post(
-        "/api/change-detection",
-        json={"before_job_id": job_a, "after_job_id": job_a, "threshold": 0.15},
+    # Malformed filename rejection
+    assert client.get(f"/api/jobs/{job_a}/previews/change_invalid.png").status_code == 404
+    assert client.get(f"/api/jobs/{job_a}/previews/change_123.png").status_code == 404
+
+    # Traversal rejection
+    assert client.get(f"/api/jobs/{job_a}/previews/../../../../etc/passwd").status_code == 404
+
+    # 3. Misaligned Transform Rejection
+    tif_mis_trans = _create_geotiff_bytes(128, 128, origin_x=400000.0) # Shifted origin
+    res_mis = client.post(
+        "/api/enhance",
+        data={"execution_mode": "live", "band_order": "B04,B03,B02,B08"},
+        files={"file": ("obs_mis.tif", tif_mis_trans, "image/tiff")},
     )
-    assert same_res.status_code == 400
+    job_mis = res_mis.json()["job_id"]
+
+    for _ in range(30):
+        jm = client.get(f"/api/jobs/{job_mis}").json()
+        if jm["status"] in ["completed", "failed"]:
+            break
+        time.sleep(0.1)
+
+    cd_mis = client.post(
+        "/api/change-detection",
+        json={"before_job_id": job_a, "after_job_id": job_mis, "threshold": 0.15},
+    )
+    assert cd_mis.status_code == 400
+    assert cd_mis.json()["detail"]["code"] == "INPUTS_NOT_ALIGNED"

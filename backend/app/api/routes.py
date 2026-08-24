@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, List, Optional
@@ -36,6 +37,7 @@ from app.jobs.manager import job_manager
 from app.model.adapter import model_adapter
 from app.model.provenance import load_model_provenance
 from app.processing.raster import (
+    BAND_ORDER,
     INPUT_HEIGHT,
     INPUT_PIXEL_SIZE_M,
     INPUT_WIDTH,
@@ -55,6 +57,7 @@ router = APIRouter(prefix="/api")
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunk for streaming
 SAMPLES_METADATA_FILE = Path("data/demo/metadata.json")
+CHANGE_PREVIEW_REGEX = re.compile(r"^change_[0-9a-f]{8}\.png$")
 
 
 def _run_inference_sync(
@@ -86,7 +89,6 @@ def _run_inference_sync(
 async def _run_live_inference_pipeline(job_id: str, input_tif: Path):
     """
     Background worker that runs genuine SEN2SRLite model inference in a separate thread.
-    Uses an async lock to ensure single-inference concurrency without blocking event loop.
     """
     async with job_manager.lock:
         start_time = time.time()
@@ -104,7 +106,6 @@ async def _run_live_inference_pipeline(job_id: str, input_tif: Path):
 
             job_manager.update_job_progress(job_id, 40, "Running SEN2SRLite 4x Inference")
 
-            # Execute real model inference & analytical preview generation in worker thread
             res = await asyncio.to_thread(
                 _run_inference_sync,
                 input_tif,
@@ -224,7 +225,6 @@ async def create_enhancement_job(
     Create a new super-resolution enhancement job.
     Upload-only live inference is the primary active mode.
     """
-    # 1. Reject conflicting file-plus-sample requests
     if file is not None and sample_id is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -235,7 +235,6 @@ async def create_enhancement_job(
             },
         )
 
-    # 2. Cached mode rejection for unverified/absent assets
     if execution_mode == ExecutionMode.CACHED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -246,7 +245,6 @@ async def create_enhancement_job(
             },
         )
 
-    # 3. Validate band order
     if band_order != "B04,B03,B02,B08":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -257,7 +255,6 @@ async def create_enhancement_job(
             },
         )
 
-    # 4. Live Mode Validation
     if execution_mode == ExecutionMode.LIVE:
         if not file:
             raise HTTPException(
@@ -277,7 +274,6 @@ async def create_enhancement_job(
         job_dir = job_manager.get_job_dir(create_response.job_id)
         input_tif = job_dir / "input.tif"
 
-        # Stream read file in chunks with strict size limit
         total_bytes = 0
         try:
             with open(input_tif, "wb") as out_f:
@@ -298,7 +294,6 @@ async def create_enhancement_job(
             job_manager.cancel_and_cleanup_job(create_response.job_id)
             raise
 
-        # Validate input GeoTIFF structure
         try:
             validate_input(input_tif)
         except RasterValidationError as rve:
@@ -355,24 +350,28 @@ def get_job_status(job_id: str) -> JobDetailResponse:
 def get_vegetation_analysis(job_id: str) -> VegetationAnalysisResponse:
     """
     Calculate NDVI analytical metrics strictly on the enhanced raw GeoTIFF surface reflectance.
-    NDVI = (B08 - B04) / (B08 + B04).
+    Applies raster dataset mask and strictly excludes invalid/nodata pixels.
     """
     if not job_manager.is_valid_job_id(job_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID."},
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID format."},
         )
     job = job_manager.get_job(job_id)
-    if not job or job.status != JobStatus.COMPLETED:
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Job '{job_id}' not found."},
+        )
+    if job.status != JobStatus.COMPLETED and job.status != JobStatus.CACHED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Job is not completed yet."},
         )
 
     job_dir = job_manager.get_job_dir(job_id)
     sr_tif = job_dir / "enhanced_2_5m.tif"
     sr_ndvi_png = job_dir / "sr_ndvi.png"
-    lr_ndvi_png = job_dir / "lr_ndvi.png"
 
     if not sr_tif.exists():
         raise HTTPException(
@@ -382,9 +381,19 @@ def get_vegetation_analysis(job_id: str) -> VegetationAnalysisResponse:
 
     with rasterio.open(sr_tif) as src:
         sr_data = src.read(out_dtype=np.float32)
+        dataset_mask = src.dataset_mask() > 0
 
-    # Ensure SR NDVI preview is generated and get statistics
-    _, stats = generate_ndvi_preview(sr_data, sr_ndvi_png)
+    _, stats = generate_ndvi_preview(sr_data, sr_ndvi_png, mask=dataset_mask)
+
+    if stats["valid_pixel_count"] == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": ErrorCode.NO_VALID_PIXELS.value,
+                "message": "No valid surface reflectance pixels found for vegetation index analysis.",
+                "suggested_action": "Upload an observation containing valid, non-zero surface reflectance.",
+            },
+        )
 
     return VegetationAnalysisResponse(
         job_id=job_id,
@@ -406,6 +415,7 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
     """
     Calculate spectral change between two completed, spatially aligned 4-band jobs.
     delta = NDVI_after - NDVI_before.
+    Strictly verifies CRS, dimensions, band order, affine transform, resolution, and bounds.
     """
     if not job_manager.is_valid_job_id(req.before_job_id) or not job_manager.is_valid_job_id(req.after_job_id):
         raise HTTPException(
@@ -422,13 +432,13 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
     job_before = job_manager.get_job(req.before_job_id)
     job_after = job_manager.get_job(req.after_job_id)
 
-    if not job_before or job_before.status != JobStatus.COMPLETED:
+    if not job_before or (job_before.status != JobStatus.COMPLETED and job_before.status != JobStatus.CACHED):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Before job '{req.before_job_id}' is not completed."},
         )
 
-    if not job_after or job_after.status != JobStatus.COMPLETED:
+    if not job_after or (job_after.status != JobStatus.COMPLETED and job_after.status != JobStatus.CACHED):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"After job '{req.after_job_id}' is not completed."},
@@ -443,21 +453,22 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
     if not tif_before.exists() or not tif_after.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": ErrorCode.INVALID_FILE.value, "message": "Enhanced GeoTIFF files not found for change detection."},
+            detail={"code": ErrorCode.INVALID_FILE.value, "message": "Enhanced GeoTIFF rasters not found."},
         )
 
     with rasterio.open(tif_before) as src_b, rasterio.open(tif_after) as src_a:
-        # Strict Alignment Validation
+        # 1. CRS Check
         if src_b.crs != src_a.crs:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
                     "message": f"CRS mismatch: '{src_b.crs}' vs '{src_a.crs}'.",
-                    "suggested_action": "Select two jobs sharing the exact same coordinate system.",
+                    "suggested_action": "Select observations sharing the exact same coordinate system.",
                 },
             )
 
+        # 2. Dimensions & Band Count Check
         if (src_b.height, src_b.width) != (src_a.height, src_a.width):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -468,33 +479,81 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
                 },
             )
 
-        if not np.allclose(src_b.transform, src_a.transform, atol=1e-3):
+        if src_b.count != 4 or src_a.count != 4:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
-                    "message": "Spatial affine transform and resolution mismatch between images.",
-                    "suggested_action": "Select two observations covering the exact same spatial grid.",
+                    "message": "Both observations must contain exactly 4 spectral bands.",
+                    "suggested_action": "Provide 4-band Sentinel-2 enhanced rasters.",
+                },
+            )
+
+        # 3. Band Descriptions / Order Check
+        desc_b = tuple(src_b.descriptions) if src_b.descriptions else BAND_ORDER
+        desc_a = tuple(src_a.descriptions) if src_a.descriptions else BAND_ORDER
+        if desc_b != desc_a or desc_b != BAND_ORDER:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
+                    "message": f"Band order mismatch: {desc_b} vs {desc_a}.",
+                    "suggested_action": "Ensure both observations follow B04, B03, B02, B08 band order.",
+                },
+            )
+
+        # 4. Affine Transform & Resolution Check (Tolerance 1e-4)
+        if not np.allclose(src_b.transform, src_a.transform, atol=1e-4):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
+                    "message": "Spatial affine transform mismatch between observations.",
+                    "suggested_action": "Select observations covering the exact same spatial grid.",
+                },
+            )
+
+        # 5. Geographic Bounds Check (Tolerance 1e-3)
+        bounds_b = (src_b.bounds.left, src_b.bounds.bottom, src_b.bounds.right, src_b.bounds.top)
+        bounds_a = (src_a.bounds.left, src_a.bounds.bottom, src_a.bounds.right, src_a.bounds.top)
+        if not np.allclose(bounds_b, bounds_a, atol=1e-3):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
+                    "message": "Geographic bounds mismatch between observations.",
+                    "suggested_action": "Select observations sharing identical spatial bounds.",
                 },
             )
 
         data_before = src_b.read(out_dtype=np.float32)
         data_after = src_a.read(out_dtype=np.float32)
+        mask_before = src_b.dataset_mask() > 0
+        mask_after = src_a.dataset_mask() > 0
 
     change_filename = f"change_{req.after_job_id[:8]}.png"
     change_png_path = dir_before / change_filename
 
-    _, change_stats = generate_change_preview(
-        before_4band=data_before,
-        after_4band=data_after,
-        threshold=req.threshold,
-        output_png=change_png_path,
-    )
+    try:
+        _, change_stats = generate_change_preview(
+            before_4band=data_before,
+            after_4band=data_after,
+            threshold=req.threshold,
+            output_png=change_png_path,
+            mask_before=mask_before,
+            mask_after=mask_after,
+        )
+    except RasterValidationError as rve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": rve.code.value, "message": rve.message},
+        )
 
     return ChangeDetectionResponse(
         before_job_id=req.before_job_id,
         after_job_id=req.after_job_id,
         threshold=change_stats["threshold"],
+        valid_pixel_count=change_stats["valid_pixel_count"],
         changed_pixel_count=change_stats["changed_pixel_count"],
         changed_percentage=change_stats["changed_percentage"],
         vegetation_gain_percentage=change_stats["vegetation_gain_percentage"],
@@ -507,12 +566,13 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
 
 @router.get("/jobs/{job_id}/previews/{filename}")
 def get_job_preview(job_id: str, filename: str):
-    """Serve job preview PNG images (Natural Color, False Color, NDVI, and Change)."""
+    """Serve job preview PNG images with strict filename regex and path traversal protections."""
     if not job_manager.is_valid_job_id(job_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID."},
         )
+
     allowed_previews = {
         "lr_rgb.png",
         "sr_rgb.png",
@@ -522,12 +582,12 @@ def get_job_preview(job_id: str, filename: str):
         "sr_fc.png",
         "hr_ref.png",
     }
-    is_change_preview = filename.startswith("change_") and filename.endswith(".png")
+    is_valid_change = bool(CHANGE_PREVIEW_REGEX.match(filename))
 
-    if filename not in allowed_previews and not is_change_preview:
+    if filename not in allowed_previews and not is_valid_change:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Invalid preview filename: '{filename}'."},
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid preview filename requested."},
         )
 
     job = job_manager.get_job(job_id)
@@ -538,18 +598,28 @@ def get_job_preview(job_id: str, filename: str):
         )
 
     job_dir = job_manager.get_job_dir(job_id)
-    file_path = job_dir / filename
-    if not file_path.exists():
+    file_path = (job_dir / filename).resolve()
+    job_dir_resolved = job_dir.resolve()
+
+    # Strict path containment verification
+    if not str(file_path).startswith(str(job_dir_resolved)):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Access denied."},
+        )
+
+    if not file_path.exists() or not file_path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Preview image not generated yet."},
         )
+
     return FileResponse(file_path, media_type="image/png")
 
 
 @router.get("/download/{job_id}/geotiff")
 def download_geotiff(job_id: str):
-    """Download the super-resolved 2.5m GeoTIFF output."""
+    """Download the super-resolved 2.5m GeoTIFF output with path validation."""
     if not job_manager.is_valid_job_id(job_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -562,11 +632,16 @@ def download_geotiff(job_id: str):
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Job '{job_id}' not found."},
         )
     job_dir = job_manager.get_job_dir(job_id)
-    file_path = job_dir / "enhanced_2_5m.tif"
+    file_path = (job_dir / "enhanced_2_5m.tif").resolve()
+    job_dir_resolved = job_dir.resolve()
+
+    if not str(file_path).startswith(str(job_dir_resolved)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Access denied.")
+
     if not file_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Enhanced GeoTIFF not generated yet."},
+            detail={"code": ErrorCode.INVALID_FILE.value, "message": "Enhanced GeoTIFF not generated yet."},
         )
     return FileResponse(
         file_path,

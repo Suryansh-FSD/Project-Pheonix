@@ -47,6 +47,7 @@ class ErrorCode(str, Enum):
     CACHE_NOT_AVAILABLE = "CACHE_NOT_AVAILABLE"
     EXPORT_FAILED = "EXPORT_FAILED"
     INPUTS_NOT_ALIGNED = "INPUTS_NOT_ALIGNED"
+    NO_VALID_PIXELS = "NO_VALID_PIXELS"
 
 
 class ErrorDetail(BaseModel):
@@ -227,6 +228,7 @@ class ChangeDetectionResponse(BaseModel):
     before_job_id: str
     after_job_id: str
     threshold: float
+    valid_pixel_count: int
     changed_pixel_count: int
     changed_percentage: float
     vegetation_gain_percentage: float

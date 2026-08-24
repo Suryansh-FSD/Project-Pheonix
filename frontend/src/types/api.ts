@@ -21,7 +21,8 @@ export type ErrorCode =
   | "REFERENCE_UNAVAILABLE"
   | "CACHE_NOT_AVAILABLE"
   | "EXPORT_FAILED"
-  | "INPUTS_NOT_ALIGNED";
+  | "INPUTS_NOT_ALIGNED"
+  | "NO_VALID_PIXELS";
 
 export interface ErrorDetail {
   code: ErrorCode;
@@ -174,6 +175,7 @@ export interface ChangeDetectionResponse {
   before_job_id: string;
   after_job_id: string;
   threshold: number;
+  valid_pixel_count: number;
   changed_pixel_count: number;
   changed_percentage: number;
   vegetation_gain_percentage: number;
