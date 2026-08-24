@@ -1,7 +1,7 @@
 """
 GeoSR API Router
 Endpoints for Health, Samples, Enhancement Job Creation, Job Status, and Asset Downloads.
-Owned by recovery/backend.
+Owned by final/backend.
 """
 
 from __future__ import annotations
@@ -9,12 +9,13 @@ import asyncio
 import io
 import json
 import os
+import shutil
+import time
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, status
 from fastapi.responses import FileResponse
 import rasterio
-from rasterio.io import MemoryFile
 
 from app.core.schemas import (
     HealthResponse,
@@ -29,6 +30,7 @@ from app.core.schemas import (
     RasterMetadata,
     PreviewURLs,
     ValidationMetrics,
+    MetricEntry,
     DownloadLinks,
 )
 from app.jobs.manager import job_manager
@@ -43,7 +45,8 @@ router = APIRouter(prefix="/api", tags=["geosr"])
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "demo"
 SAMPLES_METADATA_FILE = DATA_DIR / "metadata.json"
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB limit
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+CHUNK_SIZE = 64 * 1024  # 64 KB streaming chunk
 
 
 async def _run_live_inference_pipeline(job_id: str, input_raster_path: Path):
@@ -55,16 +58,17 @@ async def _run_live_inference_pipeline(job_id: str, input_raster_path: Path):
         lr_preview = job_dir / "lr_rgb.png"
         sr_preview = job_dir / "sr_rgb.png"
 
+        start_time = time.perf_counter()
         try:
             # Check model readiness or load
             if not model_adapter.is_ready():
                 loaded = model_adapter.load_model()
                 if not loaded:
-                    raise RuntimeError("Failed to load SEN2SRLite model weights.")
+                    raise RuntimeError("Failed to load verified SEN2SRLite model weights.")
 
             # Stage 1: Preprocessing & Live Inference
             job_manager.update_job_progress(job_id, 40, "Running SEN2SRLite 4x Inference")
-            
+
             # Execute genuine processing pipeline
             pipeline_res = process_live_geotiff(
                 input_path=input_raster_path,
@@ -77,10 +81,12 @@ async def _run_live_inference_pipeline(job_id: str, input_raster_path: Path):
             job_manager.update_job_progress(job_id, 85, "Writing 2.5m Georeferenced GeoTIFF")
             await asyncio.sleep(0.01)
 
+            elapsed = time.perf_counter() - start_time
+
             # Stage 2: Complete
             job_manager.complete_job(
                 job_id=job_id,
-                duration_s=0.85,
+                duration_s=elapsed,
                 device=str(model_adapter.device),
                 metadata=RasterMetadata(
                     crs=pipeline_res["crs"],
@@ -94,10 +100,32 @@ async def _run_live_inference_pipeline(job_id: str, input_raster_path: Path):
                     lr_rgb_url=f"/api/jobs/{job_id}/previews/lr_rgb.png",
                     sr_rgb_url=f"/api/jobs/{job_id}/previews/sr_rgb.png",
                 ),
-                metrics=ValidationMetrics(),
+                metrics=ValidationMetrics(
+                    psnr=MetricEntry(
+                        value=None,
+                        reference_available=False,
+                        label="PSNR",
+                        unit="dB",
+                        description="Peak Signal-to-Noise Ratio calculated against aligned high-resolution reference.",
+                    ),
+                    ssim=MetricEntry(
+                        value=None,
+                        reference_available=False,
+                        label="SSIM",
+                        unit="",
+                        description="Structural Similarity Index calculated against aligned high-resolution reference.",
+                    ),
+                    reconstruction_consistency=MetricEntry(
+                        value=None,
+                        reference_available=False,
+                        label="Reconstruction Consistency",
+                        unit="",
+                        description="Diagnostic only; not ground-truth accuracy.",
+                    ),
+                ),
                 downloads=DownloadLinks(
                     geotiff_url=f"/api/download/{job_id}/geotiff",
-                    report_url=f"/api/download/{job_id}/report",
+                    report_url=None,
                 ),
             )
         except Exception as exc:
@@ -120,6 +148,8 @@ def get_health() -> HealthResponse:
         backend_ready=True,
         model_ready=is_ready,
         model_provenance=ModelProvenance(
+            artifact_revision="1.1.0",
+            artifact_sha256="479aa796d5068d0b1206118ccbca27bd3223df0214db1a9b31a1e18349ed1c7e",
             weights_license="unverified",
         ),
         device=str(model_adapter.device) if is_ready else "unavailable",
@@ -187,7 +217,6 @@ async def create_enhancement_job(
                 },
             )
 
-        # Validate band order
         if band_order != "B04,B03,B02,B08":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -198,31 +227,64 @@ async def create_enhancement_job(
                 },
             )
 
-        samples = list_samples()
-        matching_sample = next((s for s in samples if s.sample_id == sample_id), None)
-        if not matching_sample:
+        # Load and verify sample-specific cached files
+        if not SAMPLES_METADATA_FILE.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={
                     "code": ErrorCode.CACHE_NOT_AVAILABLE.value,
-                    "message": f"Sample ID '{sample_id}' not found in bundled dataset.",
+                    "message": "Sample metadata manifest not found on server.",
+                    "suggested_action": "Ensure demo assets are staged.",
+                },
+            )
+
+        with open(SAMPLES_METADATA_FILE, "r") as f:
+            manifest_data = json.load(f)
+
+        sample_info = next((s for s in manifest_data.get("samples", []) if s.get("sample_id") == sample_id), None)
+        if not sample_info:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": ErrorCode.CACHE_NOT_AVAILABLE.value,
+                    "message": f"Sample '{sample_id}' not found in verified manifest.",
                     "suggested_action": "Select a valid sample identifier from /api/samples.",
                 },
             )
 
-        sample_meta = {
-            "crs": "EPSG:32630",
-            "bounds": (350000.0, 4300000.0, 351280.0, 4301280.0),
-            "checksum": "verified_demo_sample_spain",
-        }
+        # Verify cached asset directory exists
+        sample_cache_dir = DATA_DIR / "cache" / sample_id
+        cached_sr_tif = sample_cache_dir / "sr_output.tif"
+        cached_lr_png = sample_cache_dir / "lr_rgb.png"
+        cached_sr_png = sample_cache_dir / "sr_rgb.png"
 
-        return job_manager.create_job(
+        if not (cached_sr_tif.exists() and cached_lr_png.exists() and cached_sr_png.exists()):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": ErrorCode.CACHE_NOT_AVAILABLE.value,
+                    "message": f"Cached output assets for '{sample_id}' are incomplete or missing on disk.",
+                    "suggested_action": "Run live enhancement for this sample.",
+                },
+            )
+
+        # Create cached job and stage real assets
+        create_response = job_manager.create_job(
             execution_mode=ExecutionMode.CACHED,
             source_type=SourceType.SAMPLE,
             sample_id=sample_id,
-            has_hr_reference=matching_sample.has_hr_reference,
-            sample_metadata=sample_meta,
+            sample_info=sample_info,
         )
+
+        job_dir = job_manager.get_job_dir(create_response.job_id)
+        shutil.copyfile(cached_sr_tif, job_dir / "enhanced_2_5m.tif")
+        shutil.copyfile(cached_lr_png, job_dir / "lr_rgb.png")
+        shutil.copyfile(cached_sr_png, job_dir / "sr_rgb.png")
+        hr_png = sample_cache_dir / "hr_ref.png"
+        if hr_png.exists():
+            shutil.copyfile(hr_png, job_dir / "hr_ref.png")
+
+        return create_response
 
     # 3. Validate band order for live mode
     if band_order != "B04,B03,B02,B08":
@@ -249,128 +311,90 @@ async def create_enhancement_job(
 
         # Handle sample_id live mode
         if sample_id:
-            samples = list_samples()
-            matching_sample = next((s for s in samples if s.sample_id == sample_id), None)
-            if not matching_sample:
+            sample_tif = DATA_DIR / f"{sample_id}.tif"
+            if not sample_tif.exists():
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail={
                         "code": ErrorCode.INVALID_REQUEST.value,
-                        "message": f"Sample ID '{sample_id}' not found.",
+                        "message": f"Genuine sample raster for '{sample_id}' not found on server.",
                         "suggested_action": "Select a valid sample_id from /api/samples.",
                     },
                 )
-            has_hr_ref = matching_sample.has_hr_reference
-            source_type = SourceType.SAMPLE
 
-            # Create job and stage sample input
+            with open(SAMPLES_METADATA_FILE, "r") as f:
+                manifest_data = json.load(f)
+            sample_info = next((s for s in manifest_data.get("samples", []) if s.get("sample_id") == sample_id), None)
+
             create_response = job_manager.create_job(
                 execution_mode=ExecutionMode.LIVE,
-                source_type=source_type,
+                source_type=SourceType.SAMPLE,
                 sample_id=sample_id,
-                has_hr_reference=has_hr_ref,
+                sample_info=sample_info,
             )
             job_dir = job_manager.get_job_dir(create_response.job_id)
             input_tif = job_dir / "input.tif"
-            
-            # Generate sample GeoTIFF on disk for pipeline
-            _stage_sample_input(sample_id, input_tif)
+            shutil.copyfile(sample_tif, input_tif)
+
             background_tasks.add_task(_run_live_inference_pipeline, create_response.job_id, input_tif)
             return create_response
 
-        # Handle file upload live mode
+        # Handle file upload live mode with bounded streaming chunks
         if file is not None:
-            # File size limit check
-            contents = await file.read()
-            if len(contents) > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail={
-                        "code": ErrorCode.INPUT_TOO_LARGE.value,
-                        "message": f"File size exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
-                        "suggested_action": "Provide a smaller patch (128x128 pixels).",
-                    },
-                )
-
-            # Validate input GeoTIFF header & dimensions using MemoryFile
-            try:
-                with MemoryFile(contents) as memfile:
-                    with memfile.open() as src:
-                        if src.count != 4:
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail={
-                                    "code": ErrorCode.INVALID_BANDS.value,
-                                    "message": f"Expected 4 bands, found {src.count}.",
-                                    "suggested_action": "Upload a GeoTIFF with exactly 4 bands (B04, B03, B02, B08).",
-                                },
-                            )
-                        if src.width != 128 or src.height != 128:
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail={
-                                    "code": ErrorCode.INVALID_DIMENSIONS.value,
-                                    "message": f"Invalid dimensions: {src.width}x{src.height}. MVP requires exactly 128x128 pixels.",
-                                    "suggested_action": "Crop input raster to 128x128 pixels at 10 m resolution.",
-                                },
-                            )
-                        if src.crs is None:
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail={
-                                    "code": ErrorCode.INVALID_CRS.value,
-                                    "message": "Input GeoTIFF lacks CRS information.",
-                                    "suggested_action": "Provide a georeferenced GeoTIFF with a valid projected CRS.",
-                                },
-                            )
-            except HTTPException:
-                raise
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "code": ErrorCode.INVALID_FILE.value,
-                        "message": f"Could not read uploaded GeoTIFF: {str(e)}",
-                        "suggested_action": "Ensure the uploaded file is a valid georeferenced GeoTIFF.",
-                    },
-                )
-
             create_response = job_manager.create_job(
                 execution_mode=ExecutionMode.LIVE,
                 source_type=SourceType.UPLOAD,
                 sample_id=None,
-                has_hr_reference=False,
             )
             job_dir = job_manager.get_job_dir(create_response.job_id)
             input_tif = job_dir / "input.tif"
-            with open(input_tif, "wb") as f:
-                f.write(contents)
+
+            # Stream read file in chunks with strict size limit
+            total_bytes = 0
+            try:
+                with open(input_tif, "wb") as out_f:
+                    while chunk := await file.read(CHUNK_SIZE):
+                        total_bytes += len(chunk)
+                        if total_bytes > MAX_UPLOAD_BYTES:
+                            raise HTTPException(
+                                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                                detail={
+                                    "code": ErrorCode.INPUT_TOO_LARGE.value,
+                                    "message": f"File size exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
+                                    "suggested_action": "Provide a smaller patch (128x128 pixels).",
+                                },
+                            )
+                        out_f.write(chunk)
+            except HTTPException:
+                input_tif.unlink(missing_ok=True)
+                raise
+
+            # Validate input GeoTIFF structure
+            try:
+                validate_input(input_tif)
+            except RasterValidationError as rve:
+                input_tif.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": rve.code.value,
+                        "message": rve.message,
+                        "suggested_action": "Ensure the file is a 4-band 128x128 GeoTIFF with projected CRS and 10m pixel size.",
+                    },
+                )
+            except Exception as e:
+                input_tif.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": ErrorCode.INVALID_FILE.value,
+                        "message": f"Could not parse uploaded GeoTIFF: {str(e)}",
+                        "suggested_action": "Ensure the uploaded file is a valid georeferenced GeoTIFF.",
+                    },
+                )
 
             background_tasks.add_task(_run_live_inference_pipeline, create_response.job_id, input_tif)
             return create_response
-
-
-def _stage_sample_input(sample_id: str, dest_path: Path):
-    """Write sample input GeoTIFF for processing."""
-    from rasterio.transform import from_origin
-    import numpy as np
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    transform = from_origin(350_000.0, 4_300_000.0, 10.0, 10.0)
-    data = np.full((4, 128, 128), 5000.0, dtype=np.float32)
-    with rasterio.open(
-        dest_path,
-        "w",
-        driver="GTiff",
-        height=128,
-        width=128,
-        count=4,
-        dtype="float32",
-        crs="EPSG:32630",
-        transform=transform,
-        nodata=0.0,
-    ) as dst:
-        dst.write(data)
-        dst.descriptions = ("B04", "B03", "B02", "B08")
 
 
 @router.get("/jobs/{job_id}", response_model=JobDetailResponse)
