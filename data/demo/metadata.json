@@ -1,0 +1,54 @@
+{
+  "samples": [
+    {
+      "sample_id": "spain_crops_01",
+      "name": "Spain Agricultural Fields (Crops)",
+      "category": "crop",
+      "location": "Castile-La Mancha, Spain",
+      "input_resolution_m": 10.0,
+      "output_resolution_m": 2.5,
+      "input_dimensions": [
+        128,
+        128
+      ],
+      "output_dimensions": [
+        512,
+        512
+      ],
+      "has_hr_reference": true,
+      "reference_source": "OpenSR Test / Aerial Reference",
+      "preview_url": "/api/static/samples/spain_crops_01_thumb.png",
+      "license_info": {
+        "license": "pending_verification",
+        "attribution": "ESA OpenSR / OpenSR Test dataset contributor",
+        "redistribution_permitted": false,
+        "source_url": "https://github.com/ESAOpenSR/opensr-test"
+      }
+    },
+    {
+      "sample_id": "spain_urban_01",
+      "name": "Spain Urban Settlement",
+      "category": "urban",
+      "location": "Madrid Region, Spain",
+      "input_resolution_m": 10.0,
+      "output_resolution_m": 2.5,
+      "input_dimensions": [
+        128,
+        128
+      ],
+      "output_dimensions": [
+        512,
+        512
+      ],
+      "has_hr_reference": true,
+      "reference_source": "OpenSR Test / Aerial Reference",
+      "preview_url": "/api/static/samples/spain_urban_01_thumb.png",
+      "license_info": {
+        "license": "pending_verification",
+        "attribution": "ESA OpenSR / OpenSR Test dataset contributor",
+        "redistribution_permitted": false,
+        "source_url": "https://github.com/ESAOpenSR/opensr-test"
+      }
+    }
+  ]
+}
