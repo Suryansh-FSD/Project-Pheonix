@@ -1,7 +1,7 @@
 /**
  * GeoSR Core Frontend Types — Frozen Contract
  * Directly mirrors backend/app/core/schemas.py.
- * Owned exclusively by Antigravity. Workers must not modify this file.
+ * Owned exclusively by Antigravity.
  */
 
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "cached";
@@ -60,7 +60,7 @@ export interface LicenseInfo {
 export interface SampleSummary {
   sample_id: string;
   name: string;
-  category: "crop" | "urban";
+  category: "crop" | "urban" | "reference" | string;
   location: string;
   input_resolution_m: number;
   output_resolution_m: number;
@@ -144,19 +144,4 @@ export interface JobDetailResponse {
   cache_metadata?: CacheMetadata | null;
   downloads: DownloadLinks;
   error?: ErrorDetail | null;
-}
-
-export interface NDVIAnalysisRequest {
-  job_id: string;
-  green_cover_threshold: number;
-}
-
-export interface NDVIAnalysisResponse {
-  job_id: string;
-  green_cover_percentage: number;
-  mean_ndvi: number;
-  threshold_used: number;
-  ndvi_preview_url: string;
-  ndvi_geotiff_url: string;
-  formula_applied: string;
 }

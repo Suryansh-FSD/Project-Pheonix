@@ -4,16 +4,16 @@ import { SampleCard } from '../components/SampleCard';
 import type { SampleSummary } from '../types/api';
 
 const mockSample: SampleSummary = {
-  sample_id: 'spain_crops_01',
-  name: 'Spain Agricultural Fields (Crops)',
-  category: 'crop',
-  location: 'Castile-La Mancha, Spain',
+  sample_id: 'sen2sr_reference_01',
+  name: 'SEN2SR Reference Example',
+  category: 'reference',
+  location: 'ESA OpenSR Test Dataset',
   input_resolution_m: 10.0,
   output_resolution_m: 2.5,
   input_dimensions: [128, 128],
   output_dimensions: [512, 512],
   has_hr_reference: true,
-  reference_source: 'OpenSR Test',
+  reference_source: 'ESA OpenSR Test / Aligned Aerial Reference',
   preview_url: '/thumb.png',
   license_info: {
     license: 'CC0-1.0',

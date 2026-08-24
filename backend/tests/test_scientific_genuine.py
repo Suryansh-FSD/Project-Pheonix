@@ -17,14 +17,14 @@ DATA_DEMO_DIR = Path(__file__).resolve().parents[2] / "data" / "demo"
 
 
 def test_genuine_sample_execution_and_metrics(tmp_path: Path):
-    crops_tif = DATA_DEMO_DIR / "spain_crops_01.tif"
-    hr_ref_tif = DATA_DEMO_DIR / "spain_crops_01_hr_ref.tif"
+    sample_tif = DATA_DEMO_DIR / "sen2sr_reference_01.tif"
+    hr_ref_tif = DATA_DEMO_DIR / "sen2sr_reference_01_hr_ref.tif"
 
-    assert crops_tif.exists(), f"Spain Crops sample must exist at {crops_tif}"
-    assert hr_ref_tif.exists(), f"Spain Crops HR reference must exist at {hr_ref_tif}"
+    assert sample_tif.exists(), f"Reference sample must exist at {sample_tif}"
+    assert hr_ref_tif.exists(), f"Reference HR reference must exist at {hr_ref_tif}"
 
     # 1. Validate real Sentinel-2 GeoTIFF
-    val_res = validate_input(crops_tif)
+    val_res = validate_input(sample_tif)
     assert val_res.data.shape == (4, 128, 128)
     assert val_res.crs == "EPSG:32630"
     assert val_res.data.min() >= 0.0 and val_res.data.max() <= 10000.0
@@ -40,7 +40,7 @@ def test_genuine_sample_execution_and_metrics(tmp_path: Path):
     lr_prev = tmp_path / "lr.png"
     sr_prev = tmp_path / "sr.png"
 
-    res = process_live_geotiff(crops_tif, out_tif, lr_prev, sr_prev, adapter)
+    res = process_live_geotiff(sample_tif, out_tif, lr_prev, sr_prev, adapter)
     assert res["output_shape"] == (4, 512, 512)
     assert res["output_pixel_size_m"] == 2.5
     assert out_tif.exists()

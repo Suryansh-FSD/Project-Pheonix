@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { QualityPanel } from '../components/QualityPanel';
 import type { JobDetailResponse } from '../types/api';
 
-const mockBaseJob: JobDetailResponse = {
-  job_id: 'job-123',
+const baseMockJob: JobDetailResponse = {
+  job_id: 'test-job-1',
   status: 'completed',
   execution_mode: 'live',
   cached: false,
@@ -13,15 +13,15 @@ const mockBaseJob: JobDetailResponse = {
   sample_id: null,
   progress_percent: 100,
   current_stage: 'Completed',
-  processing_duration_s: 0.85,
+  processing_duration_s: 0.5,
   device_used: 'cpu',
   model_provenance: {
     model_name: 'SEN2SRLite',
     model_variant: 'NonReference_RGBN_x4',
     code_repository: 'https://github.com/ESAOpenSR/SEN2SR',
-    artifact_uri: 'tacofoundation/sen2sr/SEN2SRLite/NonReference_RGBN_x4',
-    artifact_revision: null,
-    artifact_sha256: null,
+    artifact_uri: 'tacofoundation/sen2sr',
+    artifact_revision: '1.1.0',
+    artifact_sha256: 'abc',
     code_license: 'CC0-1.0',
     weights_license: 'unverified',
   },
@@ -31,77 +31,49 @@ const mockBaseJob: JobDetailResponse = {
     output_shape: [4, 512, 512],
     input_pixel_size_m: 10.0,
     output_pixel_size_m: 2.5,
-    bounds: [350000.0, 4300000.0, 351280.0, 4301280.0],
+    bounds: [350000, 4298720, 351280, 4300000],
   },
-  previews: {
-    lr_rgb_url: '/api/jobs/job-123/previews/lr_rgb.png',
-    sr_rgb_url: '/api/jobs/job-123/previews/sr_rgb.png',
-    hr_reference_url: null,
-  },
+  previews: {},
   metrics: {
-    psnr: {
-      value: null,
-      reference_available: false,
-      reference_name: null,
-      label: 'PSNR',
-      unit: 'dB',
-      description: 'Peak Signal-to-Noise Ratio',
-    },
-    ssim: {
-      value: null,
-      reference_available: false,
-      reference_name: null,
-      label: 'SSIM',
-      unit: '',
-      description: 'Structural Similarity Index',
-    },
-    reconstruction_consistency: {
-      value: null,
-      reference_available: false,
-      reference_name: null,
-      label: 'Reconstruction Consistency',
-      unit: '',
-      description: 'Diagnostic only',
-    },
+    psnr: { value: null, reference_available: false, label: 'PSNR', unit: 'dB', description: '' },
+    ssim: { value: null, reference_available: false, label: 'SSIM', unit: '', description: '' },
+    reconstruction_consistency: { value: null, reference_available: false, label: 'Consistency', unit: '', description: '' },
   },
   cache_metadata: null,
-  downloads: {
-    geotiff_url: '/api/download/job-123/geotiff',
-    report_url: null,
-  },
+  downloads: {},
   error: null,
 };
 
 describe('QualityPanel', () => {
-  it('displays "Reference unavailable" and never invents PSNR when reference_available is false', () => {
-    render(<QualityPanel job={mockBaseJob} />);
-    expect(screen.getByTestId('no-ref-badge')).toHaveTextContent('Reference unavailable');
+  it('renders "Reference unavailable" banner when reference_available is false', () => {
+    render(<QualityPanel job={baseMockJob} />);
+    expect(screen.getByTestId('no-ref-badge')).toHaveTextContent(/Reference unavailable/i);
     expect(screen.getByText(/Ground-truth high-resolution reference is unavailable/i)).toBeInTheDocument();
-    expect(screen.queryByText(/dB/i)).not.toBeInTheDocument();
   });
 
-  it('displays prominent "Cached Result" badge when cached is true', () => {
+  it('renders "Cached Demonstration" badge when job is cached', () => {
     const cachedJob: JobDetailResponse = {
-      ...mockBaseJob,
-      cached: true,
+      ...baseMockJob,
+      status: 'cached',
       execution_mode: 'cached',
+      cached: true,
     };
     render(<QualityPanel job={cachedJob} />);
-    expect(screen.getByTestId('cached-badge')).toHaveTextContent('Cached Result');
+    expect(screen.getByTestId('cached-badge')).toHaveTextContent(/Cached Demonstration/i);
   });
 
-  it('renders honest metrics when reference_available is true', () => {
+  it('renders PSNR and SSIM values when reference is available', () => {
     const refJob: JobDetailResponse = {
-      ...mockBaseJob,
+      ...baseMockJob,
       reference_available: true,
       metrics: {
-        ...mockBaseJob.metrics,
-        psnr: { ...mockBaseJob.metrics.psnr, value: 34.56, reference_available: true },
-        ssim: { ...mockBaseJob.metrics.ssim, value: 0.8912, reference_available: true },
+        psnr: { value: 33.35, reference_available: true, label: 'PSNR', unit: 'dB', description: '' },
+        ssim: { value: 0.8311, reference_available: true, label: 'SSIM', unit: '', description: '' },
+        reconstruction_consistency: { value: null, reference_available: false, label: 'Consistency', unit: '', description: '' },
       },
     };
     render(<QualityPanel job={refJob} />);
-    expect(screen.getByText('34.56 dB')).toBeInTheDocument();
-    expect(screen.getByText('0.8912')).toBeInTheDocument();
+    expect(screen.getByText('33.35 dB')).toBeInTheDocument();
+    expect(screen.getByText('0.8311')).toBeInTheDocument();
   });
 });

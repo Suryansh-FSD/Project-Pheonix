@@ -29,7 +29,7 @@ export const QualityPanel: React.FC<QualityPanelProps> = ({ job }) => {
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-sm"
             >
               <Database className="w-3.5 h-3.5" />
-              Cached Result
+              Cached Demonstration
             </span>
           )}
           {!hasRef ? (

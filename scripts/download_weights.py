@@ -11,56 +11,56 @@ import json
 import hashlib
 from pathlib import Path
 import mlstac
-import torch
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-WEIGHTS_DIR = MODELS_DIR / "weights"
-PROVENANCE_FILE = MODELS_DIR / "provenance.json"
-
-MODEL_ID = "tacofoundation/sen2sr/SEN2SRLite/NonReference_RGBN_x4"
+MANIFEST_FILE = MODELS_DIR / "manifest.json"
+MODEL_DIR = MODELS_DIR / "SEN2SRLite_RGBN"
+MODEL_URL = "https://huggingface.co/tacofoundation/sen2sr/resolve/main/SEN2SRLite/NonReference_RGBN_x4/mlm.json"
 
 
 def compute_sha256(file_path: Path) -> str:
     hasher = hashlib.sha256()
     with open(file_path, "rb") as f:
-        while chunk := f.read(8192):
+        while chunk := f.read(65536):
             hasher.update(chunk)
     return hasher.hexdigest()
 
 
-def download_and_verify():
-    WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Loading and staging model from MLSTAC: {MODEL_ID}...")
-    try:
-        model_dir = MODELS_DIR / "SEN2SRLite_RGBN"
-        url = "https://huggingface.co/tacofoundation/sen2sr/resolve/main/SEN2SRLite/NonReference_RGBN_x4/mlm.json"
-        loader = mlstac.download(file=url, output_dir=model_dir)
-        print(f"Model staged successfully to: {model_dir}")
-
-        provenance = {
-            "model_name": "SEN2SRLite",
-            "model_variant": "NonReference_RGBN_x4",
-            "code_repository": "https://github.com/ESAOpenSR/SEN2SR",
-            "artifact_uri": MODEL_ID,
-            "artifact_local_path": str(model_dir.relative_to(MODELS_DIR.parent)),
-            "artifact_sha256": "verified_mlstac_bundle",
-            "code_license": "CC0-1.0",
-            "weights_license": "unverified",
-            "input_bands": ["B04", "B03", "B02", "B08"],
-            "input_resolution_m": 10.0,
-            "output_resolution_m": 2.5,
-            "scale_factor": 4,
-            "device_default": "cpu"
-        }
-
-        with open(PROVENANCE_FILE, "w") as f:
-            json.dump(provenance, f, indent=2)
-
-        print(f"Provenance metadata written to: {PROVENANCE_FILE}")
-        return True
-    except Exception as e:
-        print(f"Model download/staging failed: {e}", file=sys.stderr)
+def verify_manifest() -> bool:
+    if not MANIFEST_FILE.exists():
+        print(f"Manifest not found: {MANIFEST_FILE}", file=sys.stderr)
         return False
+    with open(MANIFEST_FILE, "r") as f:
+        manifest = json.load(f)
+    files = manifest.get("files", {})
+    for filename, meta in files.items():
+        fp = MODEL_DIR / filename
+        if not fp.exists():
+            print(f"Missing artifact file: {filename}", file=sys.stderr)
+            return False
+        if fp.stat().st_size != meta["size"]:
+            print(f"Size mismatch on {filename}: expected {meta['size']}, got {fp.stat().st_size}", file=sys.stderr)
+            return False
+        h = compute_sha256(fp)
+        if h != meta["sha256"]:
+            print(f"SHA-256 mismatch on {filename}: expected {meta['sha256']}, got {h}", file=sys.stderr)
+            return False
+    print("All model artifact files verified against manifest SHA-256 hashes successfully.")
+    return True
+
+
+def download_and_verify() -> bool:
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    if not verify_manifest():
+        print(f"Downloading MLSTAC bundle from {MODEL_URL} to {MODEL_DIR}...")
+        try:
+            mlstac.download(file=MODEL_URL, output_dir=MODEL_DIR)
+            print("Download complete. Verifying integrity...")
+        except Exception as e:
+            print(f"Download failed: {e}", file=sys.stderr)
+            return False
+
+    return verify_manifest()
 
 
 if __name__ == "__main__":

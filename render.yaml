@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: geosr-backend
+    env: python
+    runtime: python-3.11
+    plan: starter
+    region: oregon
+    buildCommand: "cd backend && uv sync --frozen --no-dev && uv run python ../scripts/download_weights.py"
+    startCommand: "cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: CORS_ORIGINS
+        value: "https://geosr.vercel.app,http://localhost:5173"
+      - key: GEOSR_MODELS_DIR
+        value: "/opt/render/project/src/models"

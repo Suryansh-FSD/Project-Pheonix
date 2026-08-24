@@ -35,52 +35,37 @@ def test_samples_endpoint():
     assert response.status_code == 200
     samples = response.json()
     assert isinstance(samples, list)
-    assert len(samples) >= 2
-    ids = [s["sample_id"] for s in samples]
-    assert "spain_crops_01" in ids
-    assert "spain_urban_01" in ids
+    assert len(samples) == 1
+    assert samples[0]["sample_id"] == "sen2sr_reference_01"
+    assert samples[0]["name"] == "SEN2SR Reference Example"
 
 
-def test_cached_mode_sample_specific_differences_and_assets():
-    # 1. Run Spain Crops in Cached mode
-    res_crops = client.post(
+def test_cached_mode_reference_example_and_assets():
+    res = client.post(
         "/api/enhance",
-        data={"execution_mode": "cached", "sample_id": "spain_crops_01", "band_order": "B04,B03,B02,B08"}
+        data={"execution_mode": "cached", "sample_id": "sen2sr_reference_01", "band_order": "B04,B03,B02,B08"}
     )
-    assert res_crops.status_code == 201
-    crops_jid = res_crops.json()["job_id"]
-    crops_job = client.get(f"/api/jobs/{crops_jid}").json()
+    assert res.status_code == 201
+    jid = res.json()["job_id"]
+    job = client.get(f"/api/jobs/{jid}").json()
 
-    assert crops_job["status"] == "cached"
-    assert crops_job["cached"] is True
-    assert crops_job["reference_available"] is True
-    assert crops_job["metrics"]["psnr"]["value"] is not None
-    assert crops_job["metrics"]["ssim"]["value"] is not None
+    assert job["status"] == "cached"
+    assert job["cached"] is True
+    assert job["reference_available"] is True
+    assert job["metrics"]["psnr"]["value"] == 33.35
+    assert job["metrics"]["ssim"]["value"] == 0.8311
 
     # Check cached assets exist and open
-    lr_res = client.get(f"/api/jobs/{crops_jid}/previews/lr_rgb.png")
+    lr_res = client.get(f"/api/jobs/{jid}/previews/lr_rgb.png")
     assert lr_res.status_code == 200
-    tif_res = client.get(f"/api/download/{crops_jid}/geotiff")
+    tif_res = client.get(f"/api/download/{jid}/geotiff")
     assert tif_res.status_code == 200
-
-    # 2. Run Spain Urban in Cached mode
-    res_urban = client.post(
-        "/api/enhance",
-        data={"execution_mode": "cached", "sample_id": "spain_urban_01", "band_order": "B04,B03,B02,B08"}
-    )
-    assert res_urban.status_code == 201
-    urban_jid = res_urban.json()["job_id"]
-    urban_job = client.get(f"/api/jobs/{urban_jid}").json()
-
-    # 3. Assert sample-specific bounds and checksums are DIFFERENT
-    assert crops_job["metadata"]["bounds"] != urban_job["metadata"]["bounds"], "Bounds must differ between crops and urban"
-    assert crops_job["cache_metadata"]["source_sample_checksum"] != urban_job["cache_metadata"]["source_sample_checksum"]
 
 
 def test_cached_mode_rejects_arbitrary_upload():
     response = client.post(
         "/api/enhance",
-        data={"execution_mode": "cached", "sample_id": "spain_crops_01"},
+        data={"execution_mode": "cached", "sample_id": "sen2sr_reference_01"},
         files={"file": ("upload.tif", b"some_bytes", "image/tiff")}
     )
     assert response.status_code == 400
