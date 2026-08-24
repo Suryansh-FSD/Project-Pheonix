@@ -1,0 +1,40 @@
+# Operating System
+.DS_Store
+Thumbs.db
+*.log
+
+# Node / Frontend
+node_modules/
+dist/
+.pnpm-store/
+
+# Python / Backend
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Model Weights & Large Checkpoints
+models/weights/*
+!models/weights/.gitkeep
+models/*.pt
+models/*.pth
+models/*.onnx
+
+# Raw Geospatial Raster Demo Assets
+data/demo/*.tif
+data/demo/*.tiff
+!data/demo/.gitkeep
+
+# Job Processing Outputs
+outputs/jobs/*
+!outputs/jobs/.gitkeep
+
+# Local Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
