@@ -4,7 +4,7 @@
       "sample_id": "sen2sr_reference_01",
       "name": "SEN2SR Reference Example",
       "category": "reference",
-      "location": "ESA OpenSR Test Dataset",
+      "location": "Demonstration patch (provenance pending)",
       "crs": "EPSG:32630",
       "bounds": [
         350000.0,
@@ -22,19 +22,19 @@
         512,
         512
       ],
-      "has_hr_reference": true,
-      "reference_source": "ESA OpenSR Test / Aligned Aerial Reference",
+      "has_hr_reference": false,
+      "reference_source": null,
       "preview_url": "/api/static/samples/sen2sr_reference_01_thumb.png",
-      "checksum_sha256": "74155b459eda8062e360c955a1b922bdf35878eded9f48a23f4d66299e25c6dc",
+      "checksum_sha256": null,
       "cached_metrics": {
-        "psnr": 33.35,
-        "ssim": 0.8311
+        "psnr": null,
+        "ssim": null
       },
       "license_info": {
-        "license": "CC0-1.0",
-        "attribution": "ESA OpenSR / SEN2NAIPv2 dataset contributor",
-        "redistribution_permitted": true,
-        "source_url": "https://github.com/ESAOpenSR/opensr-test"
+        "license": "pending_verification",
+        "attribution": "Demonstration sample — license pending verification",
+        "redistribution_permitted": false,
+        "source_url": "https://github.com/ESAOpenSR/SEN2SR"
       }
     }
   ]

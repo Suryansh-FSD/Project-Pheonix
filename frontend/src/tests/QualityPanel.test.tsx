@@ -51,7 +51,7 @@ describe('QualityPanel', () => {
     expect(screen.getByText(/Ground-truth high-resolution reference is unavailable/i)).toBeInTheDocument();
   });
 
-  it('renders "Cached Demonstration" badge when job is cached', () => {
+  it('renders "Cached Demonstration — provenance pending" badge when job is cached', () => {
     const cachedJob: JobDetailResponse = {
       ...baseMockJob,
       status: 'cached',
@@ -59,7 +59,7 @@ describe('QualityPanel', () => {
       cached: true,
     };
     render(<QualityPanel job={cachedJob} />);
-    expect(screen.getByTestId('cached-badge')).toHaveTextContent(/Cached Demonstration/i);
+    expect(screen.getByTestId('cached-badge')).toHaveTextContent(/Cached Demonstration — provenance pending/i);
   });
 
   it('renders PSNR and SSIM values when reference is available', () => {

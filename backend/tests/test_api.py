@@ -38,6 +38,8 @@ def test_samples_endpoint():
     assert len(samples) == 1
     assert samples[0]["sample_id"] == "sen2sr_reference_01"
     assert samples[0]["name"] == "SEN2SR Reference Example"
+    assert samples[0]["has_hr_reference"] is False
+    assert samples[0]["license_info"]["redistribution_permitted"] is False
 
 
 def test_cached_mode_reference_example_and_assets():
@@ -51,9 +53,9 @@ def test_cached_mode_reference_example_and_assets():
 
     assert job["status"] == "cached"
     assert job["cached"] is True
-    assert job["reference_available"] is True
-    assert job["metrics"]["psnr"]["value"] == 33.35
-    assert job["metrics"]["ssim"]["value"] == 0.8311
+    assert job["reference_available"] is False
+    assert job["metrics"]["psnr"]["value"] is None
+    assert job["metrics"]["ssim"]["value"] is None
 
     # Check cached assets exist and open
     lr_res = client.get(f"/api/jobs/{jid}/previews/lr_rgb.png")

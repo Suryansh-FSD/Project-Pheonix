@@ -1,5 +1,6 @@
 {
   "artifact_uri": "tacofoundation/sen2sr/SEN2SRLite/NonReference_RGBN_x4",
+  "artifact_revision": "b44156729e7b1b73764c474dd5dcbaab0423841a8",
   "model_name": "SEN2SRLite",
   "model_variant": "NonReference_RGBN_x4",
   "stac_version": "1.1.0",
