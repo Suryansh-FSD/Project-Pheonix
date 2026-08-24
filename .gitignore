@@ -61,3 +61,4 @@ data/demo/*.png
 data/demo/*.tif
 data/demo/*.tiff
 smoke_test_128.tif
+backend/outputs/
