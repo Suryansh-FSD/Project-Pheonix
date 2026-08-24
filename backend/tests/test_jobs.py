@@ -17,7 +17,6 @@ def test_job_lifecycle_state_transitions():
         execution_mode=ExecutionMode.LIVE,
         source_type=SourceType.SAMPLE,
         sample_id="spain_crops_01",
-        has_hr_reference=True
     )
     job_id = create_res.job_id
     assert create_res.status == JobStatus.QUEUED
@@ -36,7 +35,7 @@ def test_job_lifecycle_state_transitions():
     # Complete job from running
     job_manager.complete_job(
         job_id,
-        0.5,
+        0.512,
         "cpu",
         RasterMetadata(),
         PreviewURLs(),
@@ -45,6 +44,7 @@ def test_job_lifecycle_state_transitions():
     )
     completed_job = job_manager.get_job(job_id)
     assert completed_job.status == JobStatus.COMPLETED
+    assert completed_job.processing_duration_s == 0.512
 
 
 def test_failed_job_immutability():
@@ -52,7 +52,6 @@ def test_failed_job_immutability():
         execution_mode=ExecutionMode.LIVE,
         source_type=SourceType.SAMPLE,
         sample_id="spain_crops_01",
-        has_hr_reference=True
     )
     job_id = create_res.job_id
     job_manager.start_job(job_id)
@@ -97,20 +96,29 @@ def test_failed_job_immutability():
     assert job_manager.get_job(job_id).error.message == "Initial allocation failure"
 
 
-def test_cached_job_immutability_and_deep_copy():
+def test_cached_job_sample_info_and_deep_copy():
+    sample_info = {
+        "sample_id": "spain_crops_01",
+        "crs": "EPSG:32630",
+        "bounds": [350000.0, 4300000.0, 351280.0, 4301280.0],
+        "checksum_sha256": "abc123sha",
+        "has_hr_reference": True,
+        "reference_source": "OpenSR Test",
+        "cached_metrics": {"psnr": 33.35, "ssim": 0.8311}
+    }
     create_res = job_manager.create_job(
         execution_mode=ExecutionMode.CACHED,
         source_type=SourceType.SAMPLE,
         sample_id="spain_crops_01",
-        has_hr_reference=True,
-        sample_metadata={"crs": "EPSG:32630", "bounds": (350000.0, 4300000.0, 351280.0, 4301280.0), "checksum": "abc123"}
+        sample_info=sample_info,
     )
     job_id = create_res.job_id
     assert create_res.status == JobStatus.CACHED
 
-    # Cached jobs cannot transition to running
-    job_manager.update_job_progress(job_id, 50, "Running live inference")
-    assert job_manager.get_job(job_id).status == JobStatus.CACHED
+    job = job_manager.get_job(job_id)
+    assert job.status == JobStatus.CACHED
+    assert job.cache_metadata.source_sample_checksum == "abc123sha"
+    assert job.metrics.psnr.value == 33.35
 
     # Deep copy check: mutating returned object does not alter internal state
     job_copy = job_manager.get_job(job_id)
