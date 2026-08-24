@@ -6,12 +6,21 @@ import {
   AlertTriangle,
   RefreshCw,
   Download,
+  RotateCcw,
 } from 'lucide-react';
 import { Stepper, type StepId } from './components/Stepper';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { QualityPanel } from './components/QualityPanel';
 import { SampleCard } from './components/SampleCard';
 import type { SampleSummary, JobDetailResponse, HealthResponse } from './types/api';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
+export const resolveAssetUrl = (path: string | null | undefined): string => {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${API_BASE}${path}`;
+};
 
 export const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<StepId>('select');
@@ -26,12 +35,12 @@ export const App: React.FC = () => {
 
   // Fetch health and samples on mount
   useEffect(() => {
-    fetch('/api/health')
+    fetch(`${API_BASE}/api/health`)
       .then((res) => res.json())
       .then((data) => setHealth(data))
       .catch((err) => console.error('Health check failed', err));
 
-    fetch('/api/samples')
+    fetch(`${API_BASE}/api/samples`)
       .then((res) => res.json())
       .then((data) => {
         setSamples(data);
@@ -47,7 +56,7 @@ export const App: React.FC = () => {
     }
 
     const interval = setInterval(() => {
-      fetch(`/api/jobs/${activeJob.job_id}`)
+      fetch(`${API_BASE}/api/jobs/${activeJob.job_id}`)
         .then((res) => res.json())
         .then((data: JobDetailResponse) => {
           setActiveJob(data);
@@ -93,7 +102,7 @@ export const App: React.FC = () => {
       }
 
       try {
-        const res = await fetch('/api/enhance', {
+        const res = await fetch(`${API_BASE}/api/enhance`, {
           method: 'POST',
           body: formData,
         });
@@ -107,7 +116,7 @@ export const App: React.FC = () => {
         setCurrentStep('enhance');
 
         // Fetch initial job state
-        const jobRes = await fetch(`/api/jobs/${createRes.job_id}`);
+        const jobRes = await fetch(`${API_BASE}/api/jobs/${createRes.job_id}`);
         const jobData = await jobRes.json();
         setActiveJob(jobData);
 
@@ -121,6 +130,10 @@ export const App: React.FC = () => {
       }
     },
     [selectedSample, selectedFile]
+  );
+
+  const canAccessAnalyze = Boolean(
+    activeJob && (activeJob.status === 'completed' || activeJob.status === 'cached')
   );
 
   return (
@@ -151,10 +164,14 @@ export const App: React.FC = () => {
         </header>
 
         {/* Workflow Stepper */}
-        <Stepper currentStep={currentStep} onStepClick={(s) => setCurrentStep(s)} />
+        <Stepper
+          currentStep={currentStep}
+          canAccessAnalyze={canAccessAnalyze}
+          onStepClick={(s) => setCurrentStep(s)}
+        />
 
-        {/* Error Alert */}
-        {errorMsg && (
+        {/* Error Alert Banner */}
+        {errorMsg && activeJob?.status !== 'failed' && (
           <div role="alert" className="w-full p-4 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-sm flex items-start gap-3 text-left">
             <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
@@ -211,6 +228,7 @@ export const App: React.FC = () => {
                   <input
                     type="file"
                     accept=".tif,.tiff"
+                    aria-label="Upload 4-band GeoTIFF"
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
                         setSelectedFile(e.target.files[0]);
@@ -224,7 +242,7 @@ export const App: React.FC = () => {
                       type="button"
                       onClick={() => handleStartEnhance('live')}
                       disabled={loading}
-                      className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md disabled:opacity-50"
+                      className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                     >
                       <Sparkles className="w-4 h-4" />
                       Run Live 4× Enhancement
@@ -236,30 +254,66 @@ export const App: React.FC = () => {
           </section>
         )}
 
-        {/* STEP 2: Enhance Progress */}
+        {/* STEP 2: Enhance Progress OR Explicit Failed State */}
         {currentStep === 'enhance' && activeJob && (
-          <section className="bg-slate-900/80 border border-slate-800 rounded-xl p-8 text-center space-y-6 max-w-xl mx-auto shadow-xl">
-            <div className="inline-flex p-4 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <RefreshCw className="w-8 h-8 animate-spin" />
-            </div>
+          <>
+            {activeJob.status === 'failed' ? (
+              <section className="bg-rose-950/40 border border-rose-800/80 rounded-xl p-8 text-center space-y-6 max-w-xl mx-auto shadow-xl">
+                <div className="inline-flex p-4 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <AlertTriangle className="w-8 h-8 text-rose-400" />
+                </div>
 
-            <div className="space-y-2">
-              <h3 className="text-lg font-bold text-white">Super-Resolution Processing</h3>
-              <p className="text-xs text-slate-400 font-mono">{activeJob.current_stage || 'Executing pipeline'}</p>
-            </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-white">Inference Execution Failed</h3>
+                  <p className="text-sm text-rose-300 font-medium">{activeJob.error?.message || 'Processing encountered an error.'}</p>
+                  {activeJob.error?.suggested_action && (
+                    <p className="text-xs text-slate-400">{activeJob.error.suggested_action}</p>
+                  )}
+                </div>
 
-            {/* Progress Bar */}
-            <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
-                style={{ width: `${activeJob.progress_percent}%` }}
-              />
-            </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleStartEnhance('live')}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Retry Enhancement
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep('select')}
+                    className="px-4 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                  >
+                    Choose Another Sample
+                  </button>
+                </div>
+              </section>
+            ) : (
+              <section className="bg-slate-900/80 border border-slate-800 rounded-xl p-8 text-center space-y-6 max-w-xl mx-auto shadow-xl">
+                <div className="inline-flex p-4 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <RefreshCw className="w-8 h-8 animate-spin" />
+                </div>
 
-            <p className="text-xs text-slate-500">
-              Executing ESA SEN2SRLite NonReference_RGBN_x4 inference on 4-band reflectance.
-            </p>
-          </section>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-white">Super-Resolution Processing</h3>
+                  <p className="text-xs text-slate-400 font-mono">{activeJob.current_stage || 'Executing pipeline'}</p>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                  <div
+                    className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
+                    style={{ width: `${activeJob.progress_percent}%` }}
+                  />
+                </div>
+
+                <p className="text-xs text-slate-500">
+                  Executing ESA SEN2SRLite NonReference_RGBN_x4 inference on 4-band reflectance.
+                </p>
+              </section>
+            )}
+          </>
         )}
 
         {/* STEP 3 & 4: Analyze & Export */}
@@ -277,7 +331,7 @@ export const App: React.FC = () => {
                 </button>
                 {activeJob.downloads?.geotiff_url && (
                   <a
-                    href={activeJob.downloads.geotiff_url}
+                    href={resolveAssetUrl(activeJob.downloads.geotiff_url)}
                     download
                     className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow"
                   >
@@ -290,8 +344,8 @@ export const App: React.FC = () => {
 
             {/* Split Comparison Slider */}
             <ComparisonSlider
-              leftImageUrl={activeJob.previews?.lr_rgb_url || ''}
-              rightImageUrl={activeJob.previews?.sr_rgb_url || ''}
+              leftImageUrl={resolveAssetUrl(activeJob.previews?.lr_rgb_url)}
+              rightImageUrl={resolveAssetUrl(activeJob.previews?.sr_rgb_url)}
               leftLabel="Original (10m LR)"
               rightLabel="Super-Resolved (2.5m SR)"
             />
