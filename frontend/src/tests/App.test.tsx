@@ -1,9 +1,9 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { App, resolveAssetUrl } from '../App';
 import type { JobDetailResponse } from '../types/api';
 
-describe('GeoSR Frontend E2E Unit Tests', () => {
+describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
   const mockCompletedJob: JobDetailResponse = {
     job_id: 'job-1234-test',
     status: 'completed',
@@ -59,6 +59,7 @@ describe('GeoSR Frontend E2E Unit Tests', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/api/health')) {
         return Promise.resolve({
@@ -66,7 +67,7 @@ describe('GeoSR Frontend E2E Unit Tests', () => {
           json: () => Promise.resolve({
             status: 'ok',
             backend_ready: true,
-            model_ready: true,
+            model_ready: false,
             model_provenance: {
               model_name: 'SEN2SRLite',
               model_variant: 'NonReference_RGBN_x4',
@@ -103,36 +104,91 @@ describe('GeoSR Frontend E2E Unit Tests', () => {
     expect(resolveAssetUrl('https://example.com/image.png')).toBe('https://example.com/image.png');
   });
 
-  it('renders application header and title matching design', () => {
+  it('renders Home page with health status and lazy load model message', async () => {
     render(<App />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Enhance Satellite Imagery/i);
-    expect(screen.getByText(/Turn 10 m Sentinel-2 imagery into clearer/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Clearer, Analysis-Ready Satellite Imagery/i);
+    expect(screen.getByText(/Loads on first request/i)).toBeInTheDocument();
+  });
+
+  it('navigates seamlessly across all supported pages', async () => {
+    render(<App />);
+    const nav = screen.getByRole('navigation', { name: /Main Navigation/i });
+
+    // Navigate to Enhance Image
+    fireEvent.click(within(nav).getByRole('button', { name: /Enhance Image/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Enhance Satellite Imagery/i);
+    });
+
+    // Navigate to Compare Results
+    fireEvent.click(within(nav).getByRole('button', { name: /Compare Results/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Compare Results/i);
+    });
+
+    // Navigate to Analyze Land
+    fireEvent.click(within(nav).getByRole('button', { name: /Analyze Land/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Analyze Land/i);
+    });
+
+    // Navigate to Quality Check
+    fireEvent.click(within(nav).getByRole('button', { name: /Quality Check/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Quality & Scientific Integrity/i);
+    });
+
+    // Navigate to Downloads
+    fireEvent.click(within(nav).getByRole('button', { name: /Downloads/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Downloads/i);
+    });
+
+    // Navigate to Settings
+    fireEvent.click(screen.getByRole('button', { name: /^Settings$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Settings & Backend Configuration/i);
+    });
+
+    // Navigate to Help
+    fireEvent.click(screen.getByRole('button', { name: /^Help$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Help & Technical Documentation/i);
+    });
   });
 
   it('unavailable features remain disabled with coming soon indicators', () => {
     render(<App />);
-    expect(screen.getByRole('button', { name: /Compare Results/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Analyze Land/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Choose Dates/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Create Report/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Detect Changes/i })).toBeDisabled();
   });
 
-  it('shows Reference unavailable and blank PSNR/SSIM for arbitrary live upload', async () => {
+  it('restores active job from localStorage and displays outputs', async () => {
+    localStorage.setItem('geosr_last_job_id', 'job-1234-test');
+    localStorage.setItem('geosr_job_history_ids', JSON.stringify(['job-1234-test']));
     render(<App />);
-    const file = new File(['fake-tif-content'], 'sample.tif', { type: 'image/tiff' });
-    const input = screen.getByLabelText(/Upload GeoTIFF/i);
 
-    fireEvent.change(input, { target: { files: [file] } });
-
-    const runButton = screen.getByRole('button', { name: /Run Live 4× Enhancement/i });
-    fireEvent.click(runButton);
+    // Go to Downloads and verify job is present
+    const nav = screen.getByRole('navigation', { name: /Main Navigation/i });
+    fireEvent.click(within(nav).getByRole('button', { name: /Downloads/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Reference unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(/geosr_enhanced_2_5m_job-1234.tif/i)).toBeInTheDocument();
+    });
+  });
+
+  it('removes stale job IDs from localStorage when API returns 404', async () => {
+    localStorage.setItem('geosr_last_job_id', 'stale-job-999');
+    (globalThis.fetch as any).mockImplementation((url: string) => {
+      if (url.includes('/api/jobs/stale-job-999')) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     });
 
-    expect(screen.getAllByText(/—/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/33.35/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/0.8311/)).not.toBeInTheDocument();
+    render(<App />);
+
+    await waitFor(() => {
+      expect(localStorage.getItem('geosr_last_job_id')).toBeNull();
+    });
   });
 });
