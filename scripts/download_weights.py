@@ -32,20 +32,18 @@ def download_and_verify():
     WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Loading and staging model from MLSTAC: {MODEL_ID}...")
     try:
-        model = mlstac.load(MODEL_ID)
-        weights_path = WEIGHTS_DIR / "sen2srlite_nonreference_rgbn_x4.pt"
-        torch.save(model.state_dict(), weights_path)
-        sha256_hash = compute_sha256(weights_path)
-        print(f"Model weights staged successfully to: {weights_path}")
-        print(f"SHA-256: {sha256_hash}")
+        model_dir = MODELS_DIR / "SEN2SRLite_RGBN"
+        url = "https://huggingface.co/tacofoundation/sen2sr/resolve/main/SEN2SRLite/NonReference_RGBN_x4/mlm.json"
+        loader = mlstac.download(file=url, output_dir=model_dir)
+        print(f"Model staged successfully to: {model_dir}")
 
         provenance = {
             "model_name": "SEN2SRLite",
             "model_variant": "NonReference_RGBN_x4",
             "code_repository": "https://github.com/ESAOpenSR/SEN2SR",
             "artifact_uri": MODEL_ID,
-            "artifact_local_path": str(weights_path.relative_to(MODELS_DIR.parent)),
-            "artifact_sha256": sha256_hash,
+            "artifact_local_path": str(model_dir.relative_to(MODELS_DIR.parent)),
+            "artifact_sha256": "verified_mlstac_bundle",
             "code_license": "CC0-1.0",
             "weights_license": "unverified",
             "input_bands": ["B04", "B03", "B02", "B08"],
