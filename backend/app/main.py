@@ -22,12 +22,13 @@ if cors_origins_env:
 elif environment == "development":
     allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
 else:
+    # Production without CORS_ORIGINS configured: strictly reject all cross-origin requests
     allowed_origins = []
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if allowed_origins else ["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=True if allowed_origins else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

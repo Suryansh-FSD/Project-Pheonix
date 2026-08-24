@@ -10,7 +10,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
+      - key: ENVIRONMENT
+        value: production
       - key: CORS_ORIGINS
-        value: "https://geosr.vercel.app,http://localhost:5173"
+        value: "http://localhost:5173"
       - key: GEOSR_MODELS_DIR
         value: "/opt/render/project/src/models"
