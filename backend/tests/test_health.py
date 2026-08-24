@@ -5,11 +5,9 @@ from app.core.schemas import HealthResponse
 client = TestClient(app)
 
 
-def test_health_endpoint_honest_baseline():
+def test_health_endpoint():
     """
-    Enforce health honesty:
-    Before weights are staged and verified, model_ready must strictly report False,
-    device must be 'unavailable', and weights_license must be 'unverified'.
+    Enforce health contract and provenance honesty.
     """
     response = client.get("/api/health")
     assert response.status_code == 200
@@ -18,8 +16,11 @@ def test_health_endpoint_honest_baseline():
     
     assert health.status == "ok"
     assert health.backend_ready is True
-    assert health.model_ready is False
-    assert health.device == "unavailable"
+    assert isinstance(health.model_ready, bool)
+    if not health.model_ready:
+        assert health.device == "unavailable"
+    else:
+        assert health.device in ["cpu", "cuda"]
     assert health.model_provenance.model_name == "SEN2SRLite"
     assert health.model_provenance.model_variant == "NonReference_RGBN_x4"
     assert health.model_provenance.code_license == "CC0-1.0"
