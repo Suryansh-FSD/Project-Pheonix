@@ -21,14 +21,20 @@ export const SampleCard: React.FC<SampleCardProps> = ({
 }) => {
   return (
     <div
-      onClick={() => onSelect(sample)}
-      className={`group relative rounded-xl border transition-all duration-200 text-left p-4 cursor-pointer flex flex-col justify-between ${
+      role="region"
+      aria-label={`Sample ${sample.name}`}
+      className={`group relative rounded-xl border transition-all duration-200 text-left p-4 flex flex-col justify-between ${
         isSelected
           ? 'border-emerald-500 bg-slate-900/90 shadow-lg ring-1 ring-emerald-500/50'
           : 'border-slate-800 bg-slate-950/60 hover:border-slate-700 hover:bg-slate-900/50'
       }`}
     >
-      <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => onSelect(sample)}
+        aria-pressed={isSelected}
+        className="text-left w-full space-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-lg"
+      >
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-semibold text-slate-100 group-hover:text-emerald-400 transition-colors">
             {sample.name}
@@ -44,17 +50,15 @@ export const SampleCard: React.FC<SampleCardProps> = ({
           <span className="text-slate-600">•</span>
           <span className="capitalize text-emerald-400/80">{sample.category}</span>
         </div>
-      </div>
+      </button>
 
       <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center gap-2">
         <button
           type="button"
           disabled={disabled}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRunLive(sample);
-          }}
-          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition-all disabled:opacity-50"
+          onClick={() => onRunLive(sample)}
+          aria-label={`Run Live 4x Super-Resolution for ${sample.name}`}
+          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition-all disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
         >
           <Sparkles className="w-3.5 h-3.5" />
           Live 4×
@@ -63,11 +67,9 @@ export const SampleCard: React.FC<SampleCardProps> = ({
         <button
           type="button"
           disabled={disabled}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRunCached(sample);
-          }}
-          className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 transition-all disabled:opacity-50"
+          onClick={() => onRunCached(sample)}
+          aria-label={`Load Cached Baseline for ${sample.name}`}
+          className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 transition-all disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
           <Database className="w-3.5 h-3.5 text-amber-400" />
           Cached

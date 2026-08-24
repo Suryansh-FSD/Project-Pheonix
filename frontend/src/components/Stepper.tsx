@@ -19,10 +19,11 @@ const STEPS: Step[] = [
 
 interface StepperProps {
   currentStep: StepId;
+  canAccessAnalyze: boolean;
   onStepClick?: (step: StepId) => void;
 }
 
-export const Stepper: React.FC<StepperProps> = ({ currentStep, onStepClick }) => {
+export const Stepper: React.FC<StepperProps> = ({ currentStep, canAccessAnalyze, onStepClick }) => {
   const currentIndex = STEPS.findIndex((s) => s.id === currentStep);
 
   return (
@@ -32,31 +33,40 @@ export const Stepper: React.FC<StepperProps> = ({ currentStep, onStepClick }) =>
           const isDone = idx < currentIndex;
           const isCurrent = idx === currentIndex;
           const Icon = step.icon;
+          const isNavigable = idx === 0 || (idx >= 2 && canAccessAnalyze) || isDone || isCurrent;
 
           return (
-            <li
-              key={step.id}
-              onClick={() => onStepClick?.(step.id)}
-              aria-current={isCurrent ? 'step' : undefined}
-              className={`flex items-center gap-3 w-full sm:w-auto cursor-pointer ${
-                isCurrent ? 'text-emerald-400 font-semibold' : isDone ? 'text-slate-300' : 'text-slate-500'
-              }`}
-            >
-              <div
-                className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all ${
+            <li key={step.id} className="w-full sm:w-auto">
+              <button
+                type="button"
+                disabled={!isNavigable}
+                onClick={() => isNavigable && onStepClick?.(step.id)}
+                aria-current={isCurrent ? 'step' : undefined}
+                aria-label={`Step ${step.label}: ${step.description}`}
+                className={`flex items-center gap-3 text-left w-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-lg p-1.5 ${
                   isCurrent
-                    ? 'border-emerald-500 bg-emerald-950/80 text-emerald-400 ring-2 ring-emerald-500/30'
-                    : isDone
-                    ? 'border-slate-600 bg-slate-800 text-slate-300'
-                    : 'border-slate-800 bg-slate-950 text-slate-600'
+                    ? 'text-emerald-400 font-semibold cursor-default'
+                    : isNavigable
+                    ? 'text-slate-300 hover:text-white cursor-pointer'
+                    : 'text-slate-600 cursor-not-allowed opacity-60'
                 }`}
               >
-                {isDone ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Icon className="w-5 h-5" />}
-              </div>
-              <div className="flex flex-col text-left">
-                <span className="text-sm">{step.label}</span>
-                <span className="text-xs text-slate-400 font-normal hidden md:inline">{step.description}</span>
-              </div>
+                <div
+                  className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all shrink-0 ${
+                    isCurrent
+                      ? 'border-emerald-500 bg-emerald-950/80 text-emerald-400 ring-2 ring-emerald-500/30'
+                      : isDone
+                      ? 'border-slate-600 bg-slate-800 text-slate-300'
+                      : 'border-slate-800 bg-slate-950 text-slate-600'
+                  }`}
+                >
+                  {isDone ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Icon className="w-5 h-5" />}
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm">{step.label}</span>
+                  <span className="text-xs text-slate-400 font-normal hidden md:inline">{step.description}</span>
+                </div>
+              </button>
             </li>
           );
         })}
