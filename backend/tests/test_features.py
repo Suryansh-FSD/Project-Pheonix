@@ -25,6 +25,7 @@ def _create_geotiff_bytes(
     origin_y: float = 4300000.0,
     b04_val: float = 2000.0,
     b08_val: float = 6000.0,
+    mask_half: bool = False,
 ) -> bytes:
     buf = io.BytesIO()
     transform = from_origin(origin_x, origin_y, res_x, res_y)
@@ -33,6 +34,12 @@ def _create_geotiff_bytes(
     data[1] = 2500.0   # Green (B03)
     data[2] = 2000.0   # Blue (B02)
     data[3] = b08_val  # NIR (B08)
+    
+    kwargs = {}
+    if mask_half:
+        data[:, 64:, :] = 0.0
+        kwargs["nodata"] = 0.0
+
     with rasterio.open(
         buf,
         "w",
@@ -43,6 +50,7 @@ def _create_geotiff_bytes(
         dtype="float32",
         crs=crs,
         transform=transform,
+        **kwargs,
     ) as dst:
         dst.write(data)
         if descriptions:
@@ -156,3 +164,29 @@ def test_change_detection_alignment_and_valid_pair_math():
     )
     assert cd_mis.status_code == 400
     assert cd_mis.json()["detail"]["code"] == "INPUTS_NOT_ALIGNED"
+
+
+def test_masked_and_nodata_pixels_excluded_from_valid_count():
+    # Observation with 50% nodata pixels
+    tif_half = _create_geotiff_bytes(128, 128, b04_val=2000.0, b08_val=6000.0, mask_half=True)
+    res = client.post(
+        "/api/enhance",
+        data={"execution_mode": "live", "band_order": "B04,B03,B02,B08"},
+        files={"file": ("half.tif", tif_half, "image/tiff")},
+    )
+    assert res.status_code == 201
+    job_id = res.json()["job_id"]
+
+    for _ in range(30):
+        j = client.get(f"/api/jobs/{job_id}").json()
+        if j["status"] in ["completed", "failed"]:
+            break
+        time.sleep(0.1)
+
+    assert j["status"] == "completed"
+
+    v_res = client.get(f"/api/jobs/{job_id}/analysis/vegetation")
+    assert v_res.status_code == 200
+    v_data = v_res.json()
+    # 512 x 512 total, top half valid = 512 * 256 = 131,072
+    assert v_data["valid_pixel_count"] == 131072

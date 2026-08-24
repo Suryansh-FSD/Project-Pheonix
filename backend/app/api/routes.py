@@ -169,14 +169,14 @@ async def _run_live_inference_pipeline(job_id: str, input_tif: Path):
                     report_url=None,
                 ),
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("Inference failed for job %s", job_id)
             job_manager.fail_job(
                 job_id,
                 ErrorDetail(
                     code=ErrorCode.INFERENCE_FAILED,
-                    message=f"Live inference execution failed: {str(exc)}",
-                    suggested_action="Ensure the model weights are loaded and the GeoTIFF is valid.",
+                    message="Live inference execution failed during model processing.",
+                    suggested_action="Ensure the input file is a valid 4-band GeoTIFF with surface reflectance within 0..10000.",
                 ),
             )
 
@@ -306,13 +306,14 @@ async def create_enhancement_job(
                     "suggested_action": "Ensure the file is a 4-band 128x128 GeoTIFF with projected CRS and 10m pixel size.",
                 },
             )
-        except Exception as e:
+        except Exception:
+            logger.exception("Could not parse uploaded GeoTIFF")
             job_manager.cancel_and_cleanup_job(create_response.job_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "code": ErrorCode.INVALID_FILE.value,
-                    "message": f"Could not parse uploaded GeoTIFF: {str(e)}",
+                    "message": "Could not parse uploaded GeoTIFF: file structure is corrupt or unsupported.",
                     "suggested_action": "Ensure the uploaded file is a valid georeferenced GeoTIFF.",
                 },
             )
@@ -463,7 +464,7 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
-                    "message": f"CRS mismatch: '{src_b.crs}' vs '{src_a.crs}'.",
+                    "message": "Coordinate reference systems (CRS) do not match between observations.",
                     "suggested_action": "Select observations sharing the exact same coordinate system.",
                 },
             )
@@ -497,7 +498,7 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
-                    "message": f"Band order mismatch: {desc_b} vs {desc_a}.",
+                    "message": "Band order or descriptions do not match expected B04, B03, B02, B08 sequence.",
                     "suggested_action": "Ensure both observations follow B04, B03, B02, B08 band order.",
                 },
             )
@@ -566,7 +567,7 @@ def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResp
 
 @router.get("/jobs/{job_id}/previews/{filename}")
 def get_job_preview(job_id: str, filename: str):
-    """Serve job preview PNG images with strict filename regex and path traversal protections."""
+    """Serve job preview PNG images with strict filename regex and Path.is_relative_to protections."""
     if not job_manager.is_valid_job_id(job_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -600,9 +601,16 @@ def get_job_preview(job_id: str, filename: str):
     job_dir = job_manager.get_job_dir(job_id)
     file_path = (job_dir / filename).resolve()
     job_dir_resolved = job_dir.resolve()
+    outputs_root_resolved = job_manager.outputs_dir.resolve()
 
-    # Strict path containment verification
-    if not str(file_path).startswith(str(job_dir_resolved)):
+    # Strict path containment verification using Path.is_relative_to()
+    try:
+        if not file_path.is_relative_to(job_dir_resolved) or not job_dir_resolved.is_relative_to(outputs_root_resolved):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Access denied."},
+            )
+    except (ValueError, AttributeError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Access denied."},
@@ -619,7 +627,7 @@ def get_job_preview(job_id: str, filename: str):
 
 @router.get("/download/{job_id}/geotiff")
 def download_geotiff(job_id: str):
-    """Download the super-resolved 2.5m GeoTIFF output with path validation."""
+    """Download the super-resolved 2.5m GeoTIFF output with Path.is_relative_to validation."""
     if not job_manager.is_valid_job_id(job_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -634,8 +642,12 @@ def download_geotiff(job_id: str):
     job_dir = job_manager.get_job_dir(job_id)
     file_path = (job_dir / "enhanced_2_5m.tif").resolve()
     job_dir_resolved = job_dir.resolve()
+    outputs_root_resolved = job_manager.outputs_dir.resolve()
 
-    if not str(file_path).startswith(str(job_dir_resolved)):
+    try:
+        if not file_path.is_relative_to(job_dir_resolved) or not job_dir_resolved.is_relative_to(outputs_root_resolved):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Access denied.")
+    except (ValueError, AttributeError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Access denied.")
 
     if not file_path.exists():

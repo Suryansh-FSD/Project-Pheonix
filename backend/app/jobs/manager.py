@@ -46,6 +46,10 @@ class JobManager:
         self._sync_lock = threading.Lock()
         OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def outputs_dir(self) -> Path:
+        return OUTPUTS_DIR
+
     def is_valid_job_id(self, job_id: str) -> bool:
         return bool(UUID_REGEX.match(job_id))
 
