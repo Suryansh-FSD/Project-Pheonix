@@ -1,99 +1,107 @@
-"""
-GeoSR API Router
-Endpoints for Health, Samples, Enhancement Job Creation, Job Status, and Asset Downloads.
-"""
-
 from __future__ import annotations
+
 import asyncio
-import io
 import json
-import os
-import shutil
+import logging
 import time
 from pathlib import Path
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, status
+from typing import Any, List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.core.schemas import (
+    CacheMetadata,
+    DownloadLinks,
+    ErrorDetail,
+    ErrorCode,
+    ExecutionMode,
     HealthResponse,
-    SampleSummary,
     JobCreateResponse,
     JobDetailResponse,
-    ExecutionMode,
-    SourceType,
-    ErrorCode,
-    ErrorDetail,
+    JobStatus,
+    MetricEntry,
     RasterMetadata,
     PreviewURLs,
+    SampleSummary,
+    SourceType,
     ValidationMetrics,
-    MetricEntry,
-    DownloadLinks,
 )
 from app.jobs.manager import job_manager
 from app.model.adapter import model_adapter
 from app.model.provenance import load_model_provenance
 from app.processing.raster import (
-    validate_input,
-    process_live_geotiff,
+    INPUT_HEIGHT,
+    INPUT_PIXEL_SIZE_M,
+    INPUT_WIDTH,
+    OUTPUT_PIXEL_SIZE_M,
+    SCALE_FACTOR,
     RasterValidationError,
+    process_live_geotiff,
+    validate_input,
 )
 
-router = APIRouter(prefix="/api", tags=["geosr"])
+logger = logging.getLogger("geosr.api")
+router = APIRouter(prefix="/api")
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "demo"
-SAMPLES_METADATA_FILE = DATA_DIR / "metadata.json"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
-CHUNK_SIZE = 64 * 1024  # 64 KB streaming chunk
+CHUNK_SIZE = 1024 * 1024  # 1 MB chunk for streaming
+SAMPLES_METADATA_FILE = Path("data/demo/metadata.json")
 
 
-async def _run_live_inference_pipeline(job_id: str, input_raster_path: Path):
-    """Background execution runner using concurrency lock and real model adapter."""
+def _run_inference_sync(input_tif: Path, enhanced_tif: Path, lr_png: Path, sr_png: Path) -> dict[str, Any]:
+    """Blocking CPU processing function called inside asyncio.to_thread."""
+    if not model_adapter.is_ready():
+        model_adapter.load_model()
+    return process_live_geotiff(
+        input_path=input_tif,
+        output_geotiff_path=enhanced_tif,
+        lr_preview_path=lr_png,
+        sr_preview_path=sr_png,
+        adapter=model_adapter,
+    )
+
+
+async def _run_live_inference_pipeline(job_id: str, input_tif: Path):
+    """
+    Background worker that runs genuine SEN2SRLite model inference in a separate thread.
+    Uses an async lock to ensure single-inference concurrency without blocking event loop.
+    """
     async with job_manager.lock:
+        start_time = time.time()
         job_manager.start_job(job_id)
-        job_dir = job_manager.get_job_dir(job_id)
-        output_geotiff = job_dir / "enhanced_2_5m.tif"
-        lr_preview = job_dir / "lr_rgb.png"
-        sr_preview = job_dir / "sr_rgb.png"
 
-        start_time = time.perf_counter()
         try:
-            # Check model readiness or load in thread pool
-            if not model_adapter.is_ready():
-                loaded = await asyncio.to_thread(model_adapter.load_model)
-                if not loaded:
-                    raise RuntimeError("Failed to load verified SEN2SRLite model weights.")
+            job_dir = job_manager.get_job_dir(job_id)
+            enhanced_tif = job_dir / "enhanced_2_5m.tif"
+            lr_png = job_dir / "lr_rgb.png"
+            sr_png = job_dir / "sr_rgb.png"
 
-            # Stage 1: Preprocessing & Live Inference in non-blocking worker thread
             job_manager.update_job_progress(job_id, 40, "Running SEN2SRLite 4x Inference")
 
-            # Execute genuine processing pipeline in worker thread to prevent event loop blocking
-            pipeline_res = await asyncio.to_thread(
-                process_live_geotiff,
-                input_path=input_raster_path,
-                output_geotiff_path=output_geotiff,
-                lr_preview_path=lr_preview,
-                sr_preview_path=sr_preview,
-                adapter=model_adapter,
+            # Execute real model inference in worker thread
+            res = await asyncio.to_thread(
+                _run_inference_sync,
+                input_tif,
+                enhanced_tif,
+                lr_png,
+                sr_png,
             )
 
-            job_manager.update_job_progress(job_id, 85, "Writing 2.5m Georeferenced GeoTIFF")
-            await asyncio.sleep(0.01)
+            job_manager.update_job_progress(job_id, 90, "Finalizing Output Rasters")
 
-            elapsed = time.perf_counter() - start_time
-
-            # Stage 2: Complete
+            duration = time.time() - start_time
             job_manager.complete_job(
                 job_id=job_id,
-                duration_s=elapsed,
+                duration_s=duration,
                 device=str(model_adapter.device),
                 metadata=RasterMetadata(
-                    crs=pipeline_res["crs"],
-                    input_shape=pipeline_res["input_shape"],
-                    output_shape=pipeline_res["output_shape"],
-                    input_pixel_size_m=pipeline_res["input_pixel_size_m"],
-                    output_pixel_size_m=pipeline_res["output_pixel_size_m"],
-                    bounds=pipeline_res["bounds"],
+                    crs=res["crs"],
+                    input_shape=res["input_shape"],
+                    output_shape=res["output_shape"],
+                    input_pixel_size_m=res["input_pixel_size_m"],
+                    output_pixel_size_m=res["output_pixel_size_m"],
+                    bounds=res["bounds"],
                 ),
                 previews=PreviewURLs(
                     lr_rgb_url=f"/api/jobs/{job_id}/previews/lr_rgb.png",
@@ -119,7 +127,7 @@ async def _run_live_inference_pipeline(job_id: str, input_raster_path: Path):
                         reference_available=False,
                         label="Reconstruction Consistency",
                         unit="",
-                        description="Diagnostic only; not ground-truth accuracy.",
+                        description="Correlation of downsampled 2.5m SR output to 10m LR grid (diagnostic only).",
                     ),
                 ),
                 downloads=DownloadLinks(
@@ -128,6 +136,7 @@ async def _run_live_inference_pipeline(job_id: str, input_raster_path: Path):
                 ),
             )
         except Exception as exc:
+            logger.exception("Inference failed for job %s", job_id)
             job_manager.fail_job(
                 job_id,
                 ErrorDetail(
@@ -161,7 +170,6 @@ def list_samples() -> List[SampleSummary]:
         with open(SAMPLES_METADATA_FILE, "r") as f:
             data = json.load(f)
             samples = data.get("samples", [])
-            # In upload-only MVP, unverified samples are excluded from active list
             return [
                 SampleSummary.model_validate(s)
                 for s in samples
@@ -243,6 +251,7 @@ async def create_enhancement_job(
                 while chunk := await file.read(CHUNK_SIZE):
                     total_bytes += len(chunk)
                     if total_bytes > MAX_UPLOAD_BYTES:
+                        job_manager.cancel_and_cleanup_job(create_response.job_id)
                         raise HTTPException(
                             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                             detail={
@@ -253,14 +262,14 @@ async def create_enhancement_job(
                         )
                     out_f.write(chunk)
         except HTTPException:
-            input_tif.unlink(missing_ok=True)
+            job_manager.cancel_and_cleanup_job(create_response.job_id)
             raise
 
         # Validate input GeoTIFF structure
         try:
             validate_input(input_tif)
         except RasterValidationError as rve:
-            input_tif.unlink(missing_ok=True)
+            job_manager.cancel_and_cleanup_job(create_response.job_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
@@ -270,7 +279,7 @@ async def create_enhancement_job(
                 },
             )
         except Exception as e:
-            input_tif.unlink(missing_ok=True)
+            job_manager.cancel_and_cleanup_job(create_response.job_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
@@ -287,6 +296,15 @@ async def create_enhancement_job(
 @router.get("/jobs/{job_id}", response_model=JobDetailResponse)
 def get_job_status(job_id: str) -> JobDetailResponse:
     """Read the status, progress, metrics, and downloads for a given job."""
+    if not job_manager.is_valid_job_id(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": ErrorCode.INVALID_REQUEST.value,
+                "message": f"Invalid job ID format: '{job_id}'.",
+                "suggested_action": "Provide a valid UUID job ID.",
+            },
+        )
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(
@@ -303,22 +321,53 @@ def get_job_status(job_id: str) -> JobDetailResponse:
 @router.get("/jobs/{job_id}/previews/{filename}")
 def get_job_preview(job_id: str, filename: str):
     """Serve job preview PNG images."""
+    if not job_manager.is_valid_job_id(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID."},
+        )
     if filename not in {"lr_rgb.png", "sr_rgb.png", "hr_ref.png"}:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Invalid preview filename: '{filename}'."},
+        )
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Job '{job_id}' not found."},
+        )
     job_dir = job_manager.get_job_dir(job_id)
     file_path = job_dir / filename
     if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview image not generated yet")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Preview image not generated yet."},
+        )
     return FileResponse(file_path, media_type="image/png")
 
 
 @router.get("/download/{job_id}/geotiff")
 def download_geotiff(job_id: str):
     """Download the super-resolved 2.5m GeoTIFF output."""
+    if not job_manager.is_valid_job_id(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID."},
+        )
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Job '{job_id}' not found."},
+        )
     job_dir = job_manager.get_job_dir(job_id)
     file_path = job_dir / "enhanced_2_5m.tif"
     if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enhanced GeoTIFF not generated yet")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Enhanced GeoTIFF not generated yet."},
+        )
     return FileResponse(
         file_path,
         media_type="image/tiff",

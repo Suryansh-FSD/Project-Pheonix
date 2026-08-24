@@ -1,49 +1,53 @@
-"""
-GeoSR In-Memory Job Manager
-Manages job lifecycle state machine, concurrency locks, job storage, and TTL cleanup.
-Owned by final/backend.
-"""
-
 from __future__ import annotations
+
 import asyncio
+import json
+import os
+import re
 import shutil
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from app.core.schemas import (
-    JobStatus,
-    ExecutionMode,
-    SourceType,
-    JobDetailResponse,
-    JobCreateResponse,
-    RasterMetadata,
-    PreviewURLs,
-    ValidationMetrics,
-    MetricEntry,
     CacheMetadata,
     DownloadLinks,
     ErrorDetail,
     ErrorCode,
+    ExecutionMode,
+    JobCreateResponse,
+    JobDetailResponse,
+    JobStatus,
+    MetricEntry,
     ModelProvenance,
+    RasterMetadata,
+    PreviewURLs,
+    SourceType,
+    ValidationMetrics,
 )
+from app.model.provenance import load_model_provenance
 
-OUTPUTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "outputs" / "jobs"
-MAX_STORED_JOBS = 100
-JOB_TTL_SECONDS = 3600  # 1 hour
-
-TERMINAL_STATES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CACHED}
+OUTPUTS_DIR = Path(os.environ.get("GEOSR_OUTPUTS_DIR", "outputs/jobs"))
+JOB_TTL_SECONDS = int(os.environ.get("GEOSR_JOB_TTL_SECONDS", "86400"))  # 24 hours
+MAX_STORED_JOBS = int(os.environ.get("GEOSR_MAX_STORED_JOBS", "100"))
+UUID_REGEX = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
 class JobManager:
+    """Thread-safe and asynchronous job state manager for super-resolution tasks."""
+
     def __init__(self):
         self._jobs: Dict[str, JobDetailResponse] = {}
         self._job_timestamps: Dict[str, float] = {}
         self._lock = asyncio.Lock()
         self._sync_lock = threading.Lock()
+        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    def is_valid_job_id(self, job_id: str) -> bool:
+        return bool(UUID_REGEX.match(job_id))
 
     def create_job(
         self,
@@ -63,6 +67,13 @@ class JobManager:
             self._job_timestamps[job_id] = time.time()
             initial_status = JobStatus.QUEUED if execution_mode == ExecutionMode.LIVE else JobStatus.CACHED
             has_hr_ref = sample_info.get("has_hr_reference", False) if sample_info else False
+
+            prov_info = load_model_provenance()
+            prov_model = ModelProvenance(
+                artifact_revision=prov_info.artifact_revision,
+                artifact_sha256=prov_info.artifact_sha256,
+                weights_license=prov_info.weights_license,
+            )
 
             if execution_mode == ExecutionMode.CACHED and sample_info:
                 cached_metrics = sample_info.get("cached_metrics", {})
@@ -135,11 +146,7 @@ class JobManager:
                 current_stage="Cached Baseline" if execution_mode == ExecutionMode.CACHED else "Queued",
                 processing_duration_s=0.0 if execution_mode == ExecutionMode.CACHED else None,
                 device_used="cached_disk" if execution_mode == ExecutionMode.CACHED else None,
-                model_provenance=ModelProvenance(
-                    artifact_revision="1.1.0",
-                    artifact_sha256="479aa796d5068d0b1206118ccbca27bd3223df0214db1a9b31a1e18349ed1c7e",
-                    weights_license="unverified",
-                ),
+                model_provenance=prov_model,
                 metadata=metadata,
                 previews=previews,
                 metrics=metrics,
@@ -162,6 +169,8 @@ class JobManager:
             )
 
     def get_job(self, job_id: str) -> Optional[JobDetailResponse]:
+        if not self.is_valid_job_id(job_id):
+            return None
         with self._sync_lock:
             job = self._jobs.get(job_id)
             return job.model_copy(deep=True) if job else None
@@ -220,7 +229,7 @@ class JobManager:
             if job_id not in self._jobs:
                 return
             job = self._jobs[job_id]
-            if job.status != JobStatus.RUNNING:
+            if job.status not in (JobStatus.RUNNING, JobStatus.QUEUED):
                 return
 
             job.status = JobStatus.FAILED
@@ -228,7 +237,14 @@ class JobManager:
             job.error = error.model_copy(deep=True)
 
     def get_job_dir(self, job_id: str) -> Path:
+        if not self.is_valid_job_id(job_id):
+            raise ValueError(f"Invalid job_id format: '{job_id}'")
         return OUTPUTS_DIR / job_id
+
+    def cancel_and_cleanup_job(self, job_id: str):
+        """Immediately remove an unstarted or invalid job."""
+        with self._sync_lock:
+            self._remove_job(job_id)
 
     def _cleanup_expired_jobs(self):
         """Remove jobs older than TTL or exceeding capacity."""
