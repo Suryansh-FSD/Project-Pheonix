@@ -1,7 +1,7 @@
 """
 GeoSR Geospatial Raster Processing Pipeline
 Strict 4-band B04, B03, B02, B08 10m -> 2.5m GeoTIFF validation, transformation, and preview rendering.
-Owned by recovery/scientific.
+Owned by final/scientific.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class RasterValidationError(ValueError):
 
 @dataclass(frozen=True)
 class RasterValidationResult:
-    data: np.ndarray  # Shape: (4, 128, 128) float32
+    data: np.ndarray  # Shape: (4, 128, 128) float32 in [0, 10000]
     source_profile: dict[str, Any]
     crs: str
     bounds: Tuple[float, float, float, float]
@@ -95,18 +95,18 @@ def normalize_reflectance(raw_data: np.ndarray) -> np.ndarray:
 
 def write_super_resolved_geotiff(
     output_path: Path,
-    sr_array: np.ndarray,
+    sr_array_reflectance: np.ndarray,
     source_profile: dict[str, Any],
 ) -> Path:
     """
     Write a four-band 2.5m super-resolved GeoTIFF preserving CRS, bounds, origin, and band descriptions.
-    Affine pixel size terms are divided by 4.0.
+    Affine pixel size terms are divided by 4.0. Array values should be in [0, 10000] Sentinel-2 reflectance.
     """
     source_height = int(source_profile.get("height", 0))
     source_width = int(source_profile.get("width", 0))
     expected_shape = (4, source_height * SCALE_FACTOR, source_width * SCALE_FACTOR)
 
-    output = np.asarray(sr_array, dtype=np.float32)
+    output = np.asarray(sr_array_reflectance, dtype=np.float32)
     if tuple(output.shape) != expected_shape:
         raise ValueError(f"Expected super-resolved array shape {expected_shape}, received {tuple(output.shape)}")
     if not np.isfinite(output).all():
@@ -205,21 +205,24 @@ def process_live_geotiff(
     # 2. Generate LR RGB Preview
     generate_rgb_preview(val_result.data, lr_preview_path)
 
-    # 3. Normalize reflectance
+    # 3. Normalize reflectance to [0.0, 1.0]
     norm_data = normalize_reflectance(val_result.data)
 
     # 4. Prepare PyTorch tensor [1, 4, 128, 128]
     in_tensor = torch.from_numpy(norm_data).unsqueeze(0).float()
 
-    # 5. Run genuine model inference [1, 4, 512, 512]
+    # 5. Run genuine model inference [1, 4, 512, 512] in [0.0, 1.0]
     sr_tensor = adapter.enhance(in_tensor)
-    sr_array = sr_tensor.squeeze(0).numpy()
+    sr_norm = sr_tensor.squeeze(0).numpy()
 
-    # 6. Write super-resolved GeoTIFF
-    write_super_resolved_geotiff(output_geotiff_path, sr_array, val_result.source_profile)
+    # 6. Unnormalize to surface reflectance scale [0, 10000]
+    sr_reflectance = sr_norm * REFLECTANCE_SCALE
 
-    # 7. Generate SR RGB Preview
-    generate_rgb_preview(sr_array * REFLECTANCE_SCALE, sr_preview_path)
+    # 7. Write super-resolved GeoTIFF in [0, 10000] scale
+    write_super_resolved_geotiff(output_geotiff_path, sr_reflectance, val_result.source_profile)
+
+    # 8. Generate SR RGB Preview
+    generate_rgb_preview(sr_reflectance, sr_preview_path)
 
     return {
         "crs": val_result.crs,
