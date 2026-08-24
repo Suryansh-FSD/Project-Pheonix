@@ -1,24 +1,34 @@
 import React, { useState } from 'react';
-import { Settings, RefreshCw, CheckCircle2, Trash2, Globe, Server } from 'lucide-react';
+import { Settings, RefreshCw, CheckCircle2, AlertTriangle, Trash2, Globe, Server } from 'lucide-react';
 import { useJob, API_BASE } from '../context/JobContext';
 
+type ConnectionState = 'idle' | 'connecting' | 'connected' | 'failed' | 'missing_url';
+
 export const SettingsPage: React.FC = () => {
-  const { health, refreshHealth, clearJobHistory, recentJobIds } = useJob();
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<string | null>(null);
+  const { health, refreshHealth, clearJobHistory, recentJobIds, isProdMissingApiBase } = useJob();
+  const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleTestConnection = async () => {
-    setTesting(true);
-    setTestResult(null);
+    if (isProdMissingApiBase) {
+      setConnectionState('missing_url');
+      setErrorMessage('API URL missing: VITE_API_BASE_URL is not set in this production build.');
+      return;
+    }
+
+    setConnectionState('connecting');
+    setErrorMessage(null);
+
     try {
       await refreshHealth();
-      setTestResult('Successfully connected to GeoSR backend!');
+      setConnectionState('connected');
     } catch (err: any) {
-      setTestResult(`Connection test failed: ${err.message}`);
-    } finally {
-      setTesting(false);
+      setConnectionState('failed');
+      setErrorMessage(err.message || 'Request failed');
     }
   };
+
+  const isConnected = Boolean(health && health.backend_ready);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -32,6 +42,19 @@ export const SettingsPage: React.FC = () => {
         </p>
       </div>
 
+      {/* Production Warning if VITE_API_BASE_URL is missing */}
+      {isProdMissingApiBase && (
+        <div role="alert" className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="font-semibold">Missing Production API Configuration</p>
+            <p className="text-amber-800">
+              <code>VITE_API_BASE_URL</code> is not defined in this Vercel deployment. Requests will fail unless configured in Vercel project environment variables.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Backend Connection */}
       <section className="p-6 rounded-2xl bg-[#FCFBF7] border border-[#D9DDD2] shadow-2xs space-y-4">
         <div className="flex items-center gap-2">
@@ -41,7 +64,7 @@ export const SettingsPage: React.FC = () => {
           </h2>
         </div>
 
-        <div className="space-y-2 text-xs">
+        <div className="space-y-3 text-xs">
           <div className="p-3 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <span className="text-[#6D756F] block">Configured API Base URL:</span>
@@ -52,18 +75,32 @@ export const SettingsPage: React.FC = () => {
             <button
               type="button"
               onClick={handleTestConnection}
-              disabled={testing}
+              disabled={connectionState === 'connecting'}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#00613E] hover:bg-[#004F33] text-white shadow-2xs transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
-              Test Connection
+              <RefreshCw className={`w-3.5 h-3.5 ${connectionState === 'connecting' ? 'animate-spin' : ''}`} />
+              {connectionState === 'connecting' ? 'Connecting...' : 'Test Connection'}
             </button>
           </div>
 
-          {testResult && (
-            <p className="text-xs font-semibold text-[#16744A] flex items-center gap-1.5 pt-1">
+          {connectionState === 'connected' && (
+            <p className="text-xs font-semibold text-[#16744A] flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4" />
-              {testResult}
+              Connected: Successfully reached GeoSR backend API.
+            </p>
+          )}
+
+          {connectionState === 'failed' && (
+            <p className="text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-rose-600" />
+              Request failed: {errorMessage}
+            </p>
+          )}
+
+          {connectionState === 'missing_url' && (
+            <p className="text-xs font-semibold text-amber-700 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              API URL missing: VITE_API_BASE_URL is not set.
             </p>
           )}
         </div>
@@ -81,15 +118,21 @@ export const SettingsPage: React.FC = () => {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
           <div className="p-3 rounded-xl bg-[#EAF0E3]/40 border border-[#D9DDD2]">
             <span className="text-[#6D756F] block">Backend Status:</span>
-            <strong className="text-sm text-[#0D241A]">{health?.backend_ready ? 'Operational' : 'Offline'}</strong>
+            <strong className="text-sm text-[#0D241A]">
+              {isConnected ? 'Operational' : 'Unavailable — backend not connected'}
+            </strong>
           </div>
           <div className="p-3 rounded-xl bg-[#EAF0E3]/40 border border-[#D9DDD2]">
             <span className="text-[#6D756F] block">API Version:</span>
-            <strong className="text-sm font-mono text-[#0D241A]">{health?.version || '1.0.0'}</strong>
+            <strong className="text-sm font-mono text-[#0D241A]">
+              {isConnected && health?.version ? health.version : 'Unavailable — backend not connected'}
+            </strong>
           </div>
           <div className="p-3 rounded-xl bg-[#EAF0E3]/40 border border-[#D9DDD2]">
             <span className="text-[#6D756F] block">Device:</span>
-            <strong className="text-sm font-mono text-[#0D241A] uppercase">{health?.device || 'cpu'}</strong>
+            <strong className="text-sm font-mono text-[#0D241A] uppercase">
+              {isConnected && health?.device ? health.device : 'Unavailable — backend not connected'}
+            </strong>
           </div>
         </div>
       </section>

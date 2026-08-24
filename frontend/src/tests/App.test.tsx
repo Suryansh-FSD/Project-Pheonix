@@ -72,7 +72,11 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
               model_name: 'SEN2SRLite',
               model_variant: 'NonReference_RGBN_x4',
               artifact_revision: 'b44156729e7b1b73764c474d5dcbaab0423841a8',
+              code_license: 'CC0-1.0',
+              code_repository: 'https://github.com/ESAOpenSR/SEN2SR',
             },
+            version: '1.0.0',
+            device: 'cpu',
           }),
         });
       }
@@ -99,7 +103,7 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
     });
   });
 
-  it('resolves relative asset URLs with VITE_API_BASE_URL prefix correctly', () => {
+  it('resolves relative asset URLs with resolveAssetUrl correctly', () => {
     expect(resolveAssetUrl('/api/jobs/123/previews/lr.png')).toBe('/api/jobs/123/previews/lr.png');
     expect(resolveAssetUrl('https://example.com/image.png')).toBe('https://example.com/image.png');
   });
@@ -108,6 +112,19 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
     render(<App />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Clearer, Analysis-Ready Satellite Imagery/i);
     expect(screen.getByText(/Loads on first request/i)).toBeInTheDocument();
+  });
+
+  it('Quality Check displays honest un-evaluated state before job completion', async () => {
+    render(<App />);
+    const nav = screen.getByRole('navigation', { name: /Main Navigation/i });
+    fireEvent.click(within(nav).getByRole('button', { name: /Quality Check/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Quality & Scientific Integrity/i);
+    });
+
+    const notEvaluatedElements = screen.getAllByText(/Not evaluated/i);
+    expect(notEvaluatedElements.length).toBeGreaterThanOrEqual(3);
   });
 
   it('navigates seamlessly across all supported pages', async () => {
@@ -160,6 +177,20 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
   it('unavailable features remain disabled with coming soon indicators', () => {
     render(<App />);
     expect(screen.getByRole('button', { name: /Detect Changes/i })).toBeDisabled();
+  });
+
+  it('Settings connection test displays connected when health succeeds', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /^Settings$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Test Connection/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Test Connection/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/Connected: Successfully reached GeoSR backend API/i)).toBeInTheDocument();
+    });
   });
 
   it('restores active job from localStorage and displays outputs', async () => {

@@ -4,8 +4,14 @@ import { useJob } from '../context/JobContext';
 
 export const QualityPage: React.FC = () => {
   const { activeJob, health } = useJob();
-  const isCompleted = activeJob && (activeJob.status === 'completed' || activeJob.status === 'cached');
+  const isCompleted = Boolean(activeJob && (activeJob.status === 'completed' || activeJob.status === 'cached'));
+  const metadata = activeJob?.metadata;
   const provenance = health?.model_provenance;
+  const isHealthAvailable = Boolean(health && health.backend_ready && provenance);
+
+  const bandCountText = isCompleted && metadata?.output_shape
+    ? `${metadata.output_shape[0]} Bands (B04, B03, B02, B08)`
+    : 'Not evaluated';
 
   return (
     <div className="space-y-6">
@@ -39,41 +45,57 @@ export const QualityPage: React.FC = () => {
 
           <div className="space-y-3 text-xs">
             <div className="flex items-center justify-between border-b border-[#D9DDD2]/60 pb-2">
-              <span className="font-medium text-[#0D241A]">Projected Coordinate System:</span>
-              <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>{isCompleted ? activeJob?.metadata?.crs || 'EPSG:32630 Preserved' : 'Preserved on execution'}</span>
-              </div>
+              <span className="font-medium text-[#0D241A]">Output CRS:</span>
+              {isCompleted && metadata?.crs ? (
+                <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{metadata.crs}</span>
+                </div>
+              ) : (
+                <span className="text-slate-400 font-medium">Not evaluated</span>
+              )}
             </div>
 
             <div className="flex items-center justify-between border-b border-[#D9DDD2]/60 pb-2">
-              <span className="font-medium text-[#0D241A]">Geographic Bounding Box:</span>
-              <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>{isCompleted ? 'Preserved' : 'Preserved on execution'}</span>
-              </div>
+              <span className="font-medium text-[#0D241A]">Output Bounds:</span>
+              {isCompleted && metadata?.bounds ? (
+                <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="font-mono text-[11px]">Preserved</span>
+                </div>
+              ) : (
+                <span className="text-slate-400 font-medium">Not evaluated</span>
+              )}
             </div>
 
             <div className="flex items-center justify-between border-b border-[#D9DDD2]/60 pb-2">
-              <span className="font-medium text-[#0D241A]">Channel Dimensions:</span>
-              <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>4 Bands (B04, B03, B02, B08)</span>
-              </div>
+              <span className="font-medium text-[#0D241A]">Band Count:</span>
+              {isCompleted && metadata?.output_shape ? (
+                <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{bandCountText}</span>
+                </div>
+              ) : (
+                <span className="text-slate-400 font-medium">Not evaluated</span>
+              )}
             </div>
 
             <div className="flex items-center justify-between border-b border-[#D9DDD2]/60 pb-2">
-              <span className="font-medium text-[#0D241A]">Reflectance Values:</span>
-              <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>100% Finite (no NaN / Inf)</span>
-              </div>
+              <span className="font-medium text-[#0D241A]">Finite-Value Validation:</span>
+              {isCompleted ? (
+                <div className="flex items-center gap-1.5 text-[#16744A] font-semibold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Server output validation passed</span>
+                </div>
+              ) : (
+                <span className="text-slate-400 font-medium">Not evaluated</span>
+              )}
             </div>
 
             <div className="flex items-center justify-between pb-1">
               <span className="font-medium text-[#0D241A]">High-Resolution Reference:</span>
               <span className="font-mono font-semibold text-slate-500">
-                {isCompleted && activeJob.reference_available ? 'Available' : 'Reference unavailable'}
+                {isCompleted && activeJob?.reference_available ? 'Available' : 'Reference unavailable'}
               </span>
             </div>
           </div>
@@ -88,36 +110,56 @@ export const QualityPage: React.FC = () => {
           <div className="space-y-3 text-xs">
             <div className="flex justify-between border-b border-[#D9DDD2]/60 pb-2">
               <span className="text-[#6D756F]">Model Name:</span>
-              <strong className="text-[#0D241A] font-mono">{provenance?.model_name || 'SEN2SRLite'}</strong>
+              {isHealthAvailable ? (
+                <strong className="text-[#0D241A] font-mono">{provenance?.model_name}</strong>
+              ) : (
+                <span className="text-slate-400">Unavailable — backend not connected</span>
+              )}
             </div>
 
             <div className="flex justify-between border-b border-[#D9DDD2]/60 pb-2">
               <span className="text-[#6D756F]">Model Variant:</span>
-              <strong className="text-[#0D241A] font-mono">{provenance?.model_variant || 'NonReference_RGBN_x4'}</strong>
+              {isHealthAvailable ? (
+                <strong className="text-[#0D241A] font-mono">{provenance?.model_variant}</strong>
+              ) : (
+                <span className="text-slate-400">Unavailable — backend not connected</span>
+              )}
             </div>
 
             <div className="flex justify-between border-b border-[#D9DDD2]/60 pb-2">
               <span className="text-[#6D756F]">Hugging Face Revision:</span>
-              <code className="text-[#003F2D] text-[11px] font-mono">
-                {provenance?.artifact_revision?.slice(0, 12) || 'b44156729e7b'}...
-              </code>
+              {isHealthAvailable && provenance?.artifact_revision ? (
+                <code className="text-[#003F2D] text-[11px] font-mono">
+                  {provenance.artifact_revision.slice(0, 12)}...
+                </code>
+              ) : (
+                <span className="text-slate-400">Unavailable — backend not connected</span>
+              )}
             </div>
 
             <div className="flex justify-between border-b border-[#D9DDD2]/60 pb-2">
               <span className="text-[#6D756F]">Code License:</span>
-              <strong className="text-[#0D241A]">{provenance?.code_license || 'CC0-1.0'}</strong>
+              {isHealthAvailable ? (
+                <strong className="text-[#0D241A]">{provenance?.code_license}</strong>
+              ) : (
+                <span className="text-slate-400">Unavailable — backend not connected</span>
+              )}
             </div>
 
             <div className="flex justify-between pb-1">
               <span className="text-[#6D756F]">Code Repository:</span>
-              <a
-                href={provenance?.code_repository || 'https://github.com/ESAOpenSR/SEN2SR'}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[#00613E] underline font-medium"
-              >
-                ESAOpenSR / SEN2SR
-              </a>
+              {isHealthAvailable && provenance?.code_repository ? (
+                <a
+                  href={provenance.code_repository}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#00613E] underline font-medium"
+                >
+                  ESAOpenSR / SEN2SR
+                </a>
+              ) : (
+                <span className="text-slate-400">Unavailable — backend not connected</span>
+              )}
             </div>
           </div>
         </section>

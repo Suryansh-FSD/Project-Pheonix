@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { JobDetailResponse, HealthResponse } from '../types/api';
+import { buildAssetUrl } from '../utils/url';
 
 export type AppRoute =
   | 'home'
@@ -20,22 +21,22 @@ interface JobContextType {
   loading: boolean;
   errorMsg: string | null;
   currentRoute: AppRoute;
+  isProdMissingApiBase: boolean;
   setRoute: (route: AppRoute) => void;
   setSelectedFile: (file: File | null) => void;
   startEnhance: (fileOverride?: File) => Promise<void>;
   clearJobHistory: () => void;
-  refreshHealth: () => Promise<void>;
+  refreshHealth: () => Promise<HealthResponse>;
   resolveAssetUrl: (path: string | null | undefined) => string;
 }
 
 const JobContext = createContext<JobContextType | undefined>(undefined);
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').trim();
+export const IS_PROD_MISSING_API_BASE = import.meta.env.PROD && !API_BASE;
 
 export const resolveAssetUrl = (path: string | null | undefined): string => {
-  if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  return `${API_BASE}${path}`;
+  return buildAssetUrl(path, API_BASE);
 };
 
 const STORAGE_LAST_JOB_KEY = 'geosr_last_job_id';
@@ -89,32 +90,32 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Fetch Health
-  const refreshHealth = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/health`);
-      if (res.ok) {
-        const data = await res.json();
-        setHealth(data);
-      }
-    } catch (err) {
-      console.error('Health check failed', err);
+  // Fetch Health - strictly returns data or throws
+  const refreshHealth = useCallback(async (): Promise<HealthResponse> => {
+    const url = buildAssetUrl('/api/health', API_BASE);
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText || 'Health check failed'}`);
     }
+    const data: HealthResponse = await res.json();
+    setHealth(data);
+    return data;
   }, []);
 
   useEffect(() => {
-    refreshHealth();
+    refreshHealth().catch(() => {
+      setHealth(null);
+    });
   }, [refreshHealth]);
 
   // Restore last job on mount
   useEffect(() => {
     const lastId = localStorage.getItem(STORAGE_LAST_JOB_KEY);
     if (lastId && !activeJob) {
-      fetch(`${API_BASE}/api/jobs/${lastId}`)
+      fetch(buildAssetUrl(`/api/jobs/${lastId}`, API_BASE))
         .then((res) => {
           if (res.ok) return res.json();
           if (res.status === 404) {
-            // Stale job removed from server
             localStorage.removeItem(STORAGE_LAST_JOB_KEY);
             setRecentJobIds((prev) => {
               const filtered = prev.filter((id) => id !== lastId);
@@ -142,7 +143,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     Promise.all(
       recentJobIds.map((id) =>
-        fetch(`${API_BASE}/api/jobs/${id}`)
+        fetch(buildAssetUrl(`/api/jobs/${id}`, API_BASE))
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null)
       )
@@ -159,7 +160,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const interval = setInterval(() => {
-      fetch(`${API_BASE}/api/jobs/${activeJob.job_id}`)
+      fetch(buildAssetUrl(`/api/jobs/${activeJob.job_id}`, API_BASE))
         .then((res) => {
           if (res.ok) return res.json();
           if (res.status === 404) {
@@ -172,7 +173,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (!data) return;
           setActiveJob(data);
           if (data.status === 'completed' || data.status === 'cached') {
-            refreshHealth();
+            refreshHealth().catch(() => {});
           } else if (data.status === 'failed') {
             setErrorMsg(data.error?.message || 'Inference execution failed.');
           }
@@ -200,7 +201,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       formData.append('file', fileToUpload);
 
       try {
-        const res = await fetch(`${API_BASE}/api/enhance`, {
+        const res = await fetch(buildAssetUrl('/api/enhance', API_BASE), {
           method: 'POST',
           body: formData,
         });
@@ -213,7 +214,6 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const createRes = await res.json();
         const newJobId = createRes.job_id;
 
-        // Persist to localStorage
         localStorage.setItem(STORAGE_LAST_JOB_KEY, newJobId);
         setRecentJobIds((prev) => {
           const updated = [newJobId, ...prev.filter((id) => id !== newJobId)].slice(0, 10);
@@ -221,8 +221,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return updated;
         });
 
-        // Initial fetch
-        const jobRes = await fetch(`${API_BASE}/api/jobs/${newJobId}`);
+        const jobRes = await fetch(buildAssetUrl(`/api/jobs/${newJobId}`, API_BASE));
         if (jobRes.ok) {
           const jobData = await jobRes.json();
           setActiveJob(jobData);
@@ -255,6 +254,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         loading,
         errorMsg,
         currentRoute,
+        isProdMissingApiBase: IS_PROD_MISSING_API_BASE,
         setRoute,
         setSelectedFile,
         startEnhance,
