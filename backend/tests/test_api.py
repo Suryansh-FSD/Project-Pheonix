@@ -30,48 +30,22 @@ def _create_geotiff_bytes(width: int = 128, height: int = 128, count: int = 4, c
     return buf.getvalue()
 
 
-def test_samples_endpoint():
+def test_samples_endpoint_empty_in_upload_only_mvp():
     response = client.get("/api/samples")
     assert response.status_code == 200
     samples = response.json()
     assert isinstance(samples, list)
-    assert len(samples) == 1
-    assert samples[0]["sample_id"] == "sen2sr_reference_01"
-    assert samples[0]["name"] == "SEN2SR Reference Example"
-    assert samples[0]["has_hr_reference"] is False
-    assert samples[0]["license_info"]["redistribution_permitted"] is False
+    # Unverified samples are excluded
+    assert len(samples) == 0
 
 
-def test_cached_mode_reference_example_and_assets():
+def test_cached_mode_returns_cache_not_available():
     res = client.post(
         "/api/enhance",
         data={"execution_mode": "cached", "sample_id": "sen2sr_reference_01", "band_order": "B04,B03,B02,B08"}
     )
-    assert res.status_code == 201
-    jid = res.json()["job_id"]
-    job = client.get(f"/api/jobs/{jid}").json()
-
-    assert job["status"] == "cached"
-    assert job["cached"] is True
-    assert job["reference_available"] is False
-    assert job["metrics"]["psnr"]["value"] is None
-    assert job["metrics"]["ssim"]["value"] is None
-
-    # Check cached assets exist and open
-    lr_res = client.get(f"/api/jobs/{jid}/previews/lr_rgb.png")
-    assert lr_res.status_code == 200
-    tif_res = client.get(f"/api/download/{jid}/geotiff")
-    assert tif_res.status_code == 200
-
-
-def test_cached_mode_rejects_arbitrary_upload():
-    response = client.post(
-        "/api/enhance",
-        data={"execution_mode": "cached", "sample_id": "sen2sr_reference_01"},
-        files={"file": ("upload.tif", b"some_bytes", "image/tiff")}
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "INVALID_REQUEST"
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "CACHE_NOT_AVAILABLE"
 
 
 def test_live_upload_and_forced_failure_followed_by_success():
@@ -105,3 +79,11 @@ def test_live_upload_and_forced_failure_followed_by_success():
     assert job["metadata"]["output_shape"] == [4, 512, 512]
     assert job["metadata"]["output_pixel_size_m"] == 2.5
     assert job["processing_duration_s"] > 0.0
+
+    # Test asset downloads
+    lr_res = client.get(f"/api/jobs/{job_id}/previews/lr_rgb.png")
+    assert lr_res.status_code == 200
+    sr_res = client.get(f"/api/jobs/{job_id}/previews/sr_rgb.png")
+    assert lr_res.status_code == 200
+    tif_res = client.get(f"/api/download/{job_id}/geotiff")
+    assert tif_res.status_code == 200

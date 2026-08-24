@@ -1,6 +1,5 @@
 """
 GeoSR FastAPI Application Entry Point
-Owned by final/backend.
 """
 
 import os
@@ -14,9 +13,16 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Configurable CORS origins for Render deployment
-cors_origins_env = os.environ.get("CORS_ORIGINS", "*")
-allowed_origins = [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]
+# Strict CORS origin resolution
+environment = os.environ.get("ENVIRONMENT", "development").lower()
+cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+
+if cors_origins_env:
+    allowed_origins = [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]
+elif environment == "development":
+    allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
+else:
+    allowed_origins = []
 
 app.add_middleware(
     CORSMiddleware,

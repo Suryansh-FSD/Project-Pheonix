@@ -4,6 +4,7 @@ services:
     runtime: python
     plan: standard
     region: oregon
+    healthCheckPath: /api/health
     buildCommand: "cd backend && pip install uv && uv sync --frozen --no-dev && uv run python ../scripts/download_weights.py"
     startCommand: "cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1"
     envVars:

@@ -1,7 +1,6 @@
 """
 GeoSR SEN2SRLite Super-Resolution Model Adapter
 Wraps the ESA OpenSR SEN2SRLite NonReference_RGBN_x4 baseline.
-Owned by final/scientific.
 """
 
 from __future__ import annotations
@@ -13,18 +12,14 @@ from threading import Lock
 from typing import Any, Optional
 import mlstac
 import torch
-
-MODEL_ARTIFACT_URI = "tacofoundation/sen2sr/SEN2SRLite/NonReference_RGBN_x4"
+from app.model.provenance import load_model_provenance, get_manifest_path
 
 def _resolve_models_root() -> Path:
-    # 1. Environment variable override
     if "GEOSR_MODELS_DIR" in os.environ:
         return Path(os.environ["GEOSR_MODELS_DIR"])
-    # 2. Local repo relative path
     local_path = Path(__file__).resolve().parents[3] / "models"
     if (local_path / "SEN2SRLite_RGBN").exists():
         return local_path
-    # 3. Main workspace path
     workspace_path = Path("/Users/suryanshdixit/Desktop/VyomSight/models")
     if (workspace_path / "SEN2SRLite_RGBN").exists():
         return workspace_path
@@ -32,7 +27,6 @@ def _resolve_models_root() -> Path:
 
 MODELS_ROOT = _resolve_models_root()
 DEFAULT_MODEL_DIR = MODELS_ROOT / "SEN2SRLite_RGBN"
-MANIFEST_PATH = MODELS_ROOT / "manifest.json"
 INPUT_SHAPE = (1, 4, 128, 128)
 OUTPUT_SHAPE = (1, 4, 512, 512)
 
@@ -48,23 +42,17 @@ class SuperResolutionModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model: Optional[torch.nn.Module] = None
         self.last_error: Optional[Exception] = None
-        self.provenance_info: dict[str, Any] = {
-            "model_name": "SEN2SRLite",
-            "model_variant": "NonReference_RGBN_x4",
-            "code_repository": "https://github.com/ESAOpenSR/SEN2SR",
-            "artifact_uri": MODEL_ARTIFACT_URI,
-            "artifact_revision": "1.1.0",
-            "artifact_sha256": "479aa796d5068d0b1206118ccbca27bd3223df0214db1a9b31a1e18349ed1c7e",
-            "code_license": "CC0-1.0",
-            "weights_license": "unverified",
-        }
         self._load_lock = Lock()
+
+    @property
+    def provenance_info(self) -> dict[str, Any]:
+        return load_model_provenance().model_dump()
 
     def verify_manifest(self, model_dir: Path) -> bool:
         """Verify all model artifact files against manifest.json SHA-256 hashes."""
         manifest_file = model_dir.parent / "manifest.json"
         if not manifest_file.exists():
-            manifest_file = MANIFEST_PATH
+            manifest_file = get_manifest_path()
         if not manifest_file.exists():
             return False
 

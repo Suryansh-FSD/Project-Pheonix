@@ -56,3 +56,7 @@ outputs/jobs/*
 .env.local
 .env.*.local
 *.egg-info/
+data/demo/cache/
+data/demo/*.png
+data/demo/*.tif
+data/demo/*.tiff

@@ -1,6 +1,6 @@
 {
   "artifact_uri": "tacofoundation/sen2sr/SEN2SRLite/NonReference_RGBN_x4",
-  "artifact_revision": "b44156729e7b1b73764c474dd5dcbaab0423841a8",
+  "artifact_revision": "b44156729e7b1b73764c474d5dcbaab0423841a8",
   "model_name": "SEN2SRLite",
   "model_variant": "NonReference_RGBN_x4",
   "stac_version": "1.1.0",
@@ -8,9 +8,13 @@
   "code_license": "CC0-1.0",
   "weights_license": "unverified",
   "files": {
-    "example_data.safetensor": {
-      "size": 4456608,
-      "sha256": "c895c7da8a8d48882b73a2a1955e4260714b97540eea290229a284d73f129985"
+    "mlm.json": {
+      "size": 5397,
+      "sha256": "419d562511737b0e465a34983d634944f6e84f97ad9207a86dd94d8e430ca606"
+    },
+    "model.safetensor": {
+      "size": 2308216,
+      "sha256": "479aa796d5068d0b1206118ccbca27bd3223df0214db1a9b31a1e18349ed1c7e"
     },
     "hard_constraint.safetensor": {
       "size": 1048656,
@@ -20,13 +24,9 @@
       "size": 2715,
       "sha256": "4b6c836b1f73078c62c84d4374b2d8daee5345f6239f64e0b6be29432383bac6"
     },
-    "mlm.json": {
-      "size": 4289,
-      "sha256": "59caa5c6af96a6fbebdbd771d93c91cc2d3a770302cd2f262b5409e77a40e3f7"
-    },
-    "model.safetensor": {
-      "size": 2308216,
-      "sha256": "479aa796d5068d0b1206118ccbca27bd3223df0214db1a9b31a1e18349ed1c7e"
+    "example_data.safetensor": {
+      "size": 4456608,
+      "sha256": "c895c7da8a8d48882b73a2a1955e4260714b97540eea290229a284d73f129985"
     }
   }
 }

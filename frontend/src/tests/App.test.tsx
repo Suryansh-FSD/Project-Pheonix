@@ -11,12 +11,6 @@ describe('App', () => {
           json: () => Promise.resolve({ status: 'ok', backend_ready: true, model_ready: true }),
         });
       }
-      if (url.includes('/api/samples')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve([]),
-        });
-      }
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({}),
@@ -36,7 +30,6 @@ describe('App', () => {
   it('renders application header and title accurately', () => {
     render(<App />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/GeoSR/i);
-    expect(screen.getByText(/Option A: Bundled Verified Samples/i)).toBeInTheDocument();
-    expect(screen.getByText(/Option B: Upload Sentinel-2 GeoTIFF/i)).toBeInTheDocument();
+    expect(screen.getByText(/Upload Sentinel-2 GeoTIFF/i)).toBeInTheDocument();
   });
 });
