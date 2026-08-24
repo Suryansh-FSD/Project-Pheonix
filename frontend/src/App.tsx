@@ -8,6 +8,7 @@ import { HomePage } from './pages/HomePage';
 import { EnhancePage } from './pages/EnhancePage';
 import { ComparePage } from './pages/ComparePage';
 import { AnalyzePage } from './pages/AnalyzePage';
+import { DetectChangesPage } from './pages/DetectChangesPage';
 import { QualityPage } from './pages/QualityPage';
 import { DownloadsPage } from './pages/DownloadsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -28,6 +29,8 @@ const MainRouter: React.FC = () => {
         return <ComparePage />;
       case 'analyze':
         return <AnalyzePage />;
+      case 'changes':
+        return <DetectChangesPage />;
       case 'quality':
         return <QualityPage />;
       case 'downloads':

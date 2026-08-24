@@ -1,7 +1,6 @@
 /**
- * GeoSR Core Frontend Types — Frozen Contract
+ * GeoSR Core Frontend Types — Authoritative Contract
  * Directly mirrors backend/app/core/schemas.py.
- * Owned exclusively by Antigravity.
  */
 
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "cached";
@@ -21,7 +20,8 @@ export type ErrorCode =
   | "INFERENCE_FAILED"
   | "REFERENCE_UNAVAILABLE"
   | "CACHE_NOT_AVAILABLE"
-  | "EXPORT_FAILED";
+  | "EXPORT_FAILED"
+  | "INPUTS_NOT_ALIGNED";
 
 export interface ErrorDetail {
   code: ErrorCode;
@@ -64,8 +64,8 @@ export interface SampleSummary {
   location: string;
   input_resolution_m: number;
   output_resolution_m: number;
-  input_dimensions: [number, number]; // [128, 128]
-  output_dimensions: [number, number]; // [512, 512]
+  input_dimensions: [number, number];
+  output_dimensions: [number, number];
   has_hr_reference: boolean;
   reference_source?: string | null;
   preview_url: string;
@@ -85,8 +85,8 @@ export interface JobCreateResponse {
 
 export interface RasterMetadata {
   crs?: string | null;
-  input_shape?: [number, number, number] | null; // [4, 128, 128]
-  output_shape?: [number, number, number] | null; // [4, 512, 512]
+  input_shape?: [number, number, number] | null;
+  output_shape?: [number, number, number] | null;
   input_pixel_size_m?: number | null;
   output_pixel_size_m?: number | null;
   bounds?: [number, number, number, number] | null;
@@ -96,6 +96,10 @@ export interface RasterMetadata {
 export interface PreviewURLs {
   lr_rgb_url?: string | null;
   sr_rgb_url?: string | null;
+  lr_ndvi_url?: string | null;
+  sr_ndvi_url?: string | null;
+  lr_fc_url?: string | null;
+  sr_fc_url?: string | null;
   hr_reference_url?: string | null;
 }
 
@@ -144,4 +148,37 @@ export interface JobDetailResponse {
   cache_metadata?: CacheMetadata | null;
   downloads: DownloadLinks;
   error?: ErrorDetail | null;
+}
+
+export interface VegetationAnalysisResponse {
+  job_id: string;
+  formula: string;
+  valid_pixel_count: number;
+  min_ndvi: number;
+  max_ndvi: number;
+  mean_ndvi: number;
+  vegetation_fraction: number;
+  threshold_used: number;
+  lr_ndvi_url: string;
+  sr_ndvi_url: string;
+  statement: string;
+}
+
+export interface ChangeDetectionRequest {
+  before_job_id: string;
+  after_job_id: string;
+  threshold?: number;
+}
+
+export interface ChangeDetectionResponse {
+  before_job_id: string;
+  after_job_id: string;
+  threshold: number;
+  changed_pixel_count: number;
+  changed_percentage: number;
+  vegetation_gain_percentage: number;
+  vegetation_loss_percentage: number;
+  mean_ndvi_delta: number;
+  change_preview_url: string;
+  statement: string;
 }

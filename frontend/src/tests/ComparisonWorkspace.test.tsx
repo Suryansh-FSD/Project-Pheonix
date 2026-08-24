@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { ComparisonWorkspace } from '../components/ComparisonWorkspace';
+import { JobProvider } from '../context/JobContext';
 import type { JobDetailResponse } from '../types/api';
 
 describe('ComparisonWorkspace', () => {
@@ -26,6 +27,10 @@ describe('ComparisonWorkspace', () => {
     previews: {
       lr_rgb_url: '/api/jobs/job-test/previews/lr_rgb.png',
       sr_rgb_url: '/api/jobs/job-test/previews/sr_rgb.png',
+      lr_ndvi_url: '/api/jobs/job-test/previews/lr_ndvi.png',
+      sr_ndvi_url: '/api/jobs/job-test/previews/sr_ndvi.png',
+      lr_fc_url: '/api/jobs/job-test/previews/lr_fc.png',
+      sr_fc_url: '/api/jobs/job-test/previews/sr_fc.png',
     },
     metrics: {
       psnr: { value: null, reference_available: false, label: 'PSNR', unit: 'dB', description: '' },
@@ -38,30 +43,33 @@ describe('ComparisonWorkspace', () => {
 
   it('renders upload dropzone when no job is present', () => {
     render(
-      <ComparisonWorkspace
-        job={null}
-        selectedFile={null}
-        onFileSelect={vi.fn()}
-        onStartEnhance={vi.fn()}
-        loading={false}
-        resolveAssetUrl={(u) => u || ''}
-      />
+      <JobProvider>
+        <ComparisonWorkspace
+          job={null}
+          selectedFile={null}
+          onFileSelect={vi.fn()}
+          onStartEnhance={vi.fn()}
+          loading={false}
+          resolveAssetUrl={(u) => u || ''}
+        />
+      </JobProvider>
     );
 
-    expect(screen.getByText(/See the Improvement/i)).toBeInTheDocument();
-    expect(screen.getByText(/Select or upload a 4-band Sentinel-2 GeoTIFF/i)).toBeInTheDocument();
+    expect(screen.getByText(/No Imagery Selected/i)).toBeInTheDocument();
   });
 
   it('supports keyboard slider interaction when job is completed', () => {
     render(
-      <ComparisonWorkspace
-        job={mockCompletedJob}
-        selectedFile={null}
-        onFileSelect={vi.fn()}
-        onStartEnhance={vi.fn()}
-        loading={false}
-        resolveAssetUrl={(u) => u || ''}
-      />
+      <JobProvider>
+        <ComparisonWorkspace
+          job={mockCompletedJob}
+          selectedFile={null}
+          onFileSelect={vi.fn()}
+          onStartEnhance={vi.fn()}
+          loading={false}
+          resolveAssetUrl={(u) => u || ''}
+        />
+      </JobProvider>
     );
 
     const slider = screen.getByRole('slider');

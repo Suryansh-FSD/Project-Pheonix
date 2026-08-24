@@ -1,228 +1,220 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { Upload, RefreshCw } from 'lucide-react';
-import type { JobDetailResponse } from '../types/api';
+import React, { useState, useEffect } from 'react';
+import { Layers, Sprout, Upload } from 'lucide-react';
+import type { JobDetailResponse, LayerViewMode, VegetationAnalysisResponse } from '../types/api';
+import { ComparisonSlider } from './ComparisonSlider';
+import { useJob } from '../context/JobContext';
 
-interface ComparisonWorkspaceProps {
+export interface ComparisonWorkspaceProps {
   job: JobDetailResponse | null;
-  selectedFile: File | null;
-  onFileSelect: (file: File) => void;
-  onStartEnhance: () => void;
-  loading: boolean;
-  resolveAssetUrl: (path: string | null | undefined) => string;
+  selectedFile?: File | null;
+  onFileSelect?: (file: File | null) => void;
+  onStartEnhance?: (file?: File) => Promise<void>;
+  loading?: boolean;
+  resolveAssetUrl?: (path: string | null | undefined) => string;
+  layerMode?: LayerViewMode;
+  onLayerModeChange?: (mode: LayerViewMode) => void;
 }
 
-export const ComparisonWorkspace: React.FC<ComparisonWorkspaceProps> = ({
-  job,
-  selectedFile,
-  onFileSelect,
-  onStartEnhance,
-  loading,
-  resolveAssetUrl,
-}) => {
-  const [sliderPos, setSliderPos] = useState<number>(50);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+export const ComparisonWorkspace: React.FC<ComparisonWorkspaceProps> = (props) => {
+  const { job, layerMode: externalLayerMode, onLayerModeChange } = props;
+  const context = useJob();
+  const resolveUrl = props.resolveAssetUrl || context.resolveAssetUrl;
+  const getVegetationAnalysis = context.getVegetationAnalysis;
 
-  const handlePointerDown = useCallback(() => {
-    setIsDragging(true);
-  }, []);
+  const [internalMode, setInternalMode] = useState<LayerViewMode>('natural_color');
+  const [vegStats, setVegStats] = useState<VegetationAnalysisResponse | null>(null);
+  const [vegLoading, setVegLoading] = useState(false);
 
-  const handlePointerUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isDragging || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-      const percent = Math.round((x / rect.width) * 100);
-      setSliderPos(percent);
-    },
-    [isDragging]
-  );
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowLeft') {
-      setSliderPos((prev) => Math.max(0, prev - 5));
-    } else if (e.key === 'ArrowRight') {
-      setSliderPos((prev) => Math.min(100, prev + 5));
-    } else if (e.key === 'Home') {
-      setSliderPos(0);
-    } else if (e.key === 'End') {
-      setSliderPos(100);
+  const currentMode = externalLayerMode || internalMode;
+  const setMode = (mode: LayerViewMode) => {
+    if (onLayerModeChange) {
+      onLayerModeChange(mode);
+    } else {
+      setInternalMode(mode);
     }
   };
 
-  const isCompleted = job && (job.status === 'completed' || job.status === 'cached');
-  const isProcessing = Boolean(job && (job.status === 'running' || job.status === 'queued')) || loading;
+  const isCompleted = Boolean(job && (job.status === 'completed' || job.status === 'cached'));
 
-  const lrUrl = resolveAssetUrl(job?.previews?.lr_rgb_url);
-  const srUrl = resolveAssetUrl(job?.previews?.sr_rgb_url);
+  // Determine left and right preview URLs based on active Layer Mode
+  let leftUrl = '';
+  let rightUrl = '';
+  let modeLabel = 'Natural Color · RGB (B04, B03, B02)';
+
+  if (job?.previews) {
+    if (currentMode === 'vegetation') {
+      leftUrl = job.previews.lr_ndvi_url ? resolveUrl(job.previews.lr_ndvi_url) : '';
+      rightUrl = job.previews.sr_ndvi_url ? resolveUrl(job.previews.sr_ndvi_url) : '';
+      modeLabel = 'Vegetation · NDVI (B08/B04)';
+    } else if (currentMode === 'infrared') {
+      leftUrl = job.previews.lr_fc_url ? resolveUrl(job.previews.lr_fc_url) : '';
+      rightUrl = job.previews.sr_fc_url ? resolveUrl(job.previews.sr_fc_url) : '';
+      modeLabel = 'False Color · NIR/Red/Green (B08, B04, B03)';
+    } else {
+      leftUrl = job.previews.lr_rgb_url ? resolveUrl(job.previews.lr_rgb_url) : '';
+      rightUrl = job.previews.sr_rgb_url ? resolveUrl(job.previews.sr_rgb_url) : '';
+      modeLabel = 'Natural Color · RGB (B04, B03, B02)';
+    }
+  }
+
+  // Fetch vegetation statistics when entering vegetation mode
+  useEffect(() => {
+    if (currentMode === 'vegetation' && job && isCompleted && getVegetationAnalysis) {
+      setVegLoading(true);
+      getVegetationAnalysis(job.job_id)
+        .then((data) => {
+          setVegStats(data);
+          setVegLoading(false);
+        })
+        .catch(() => {
+          setVegStats(null);
+          setVegLoading(false);
+        });
+    }
+  }, [currentMode, job, isCompleted, getVegetationAnalysis]);
+
+  if (!job) {
+    return (
+      <div className="p-8 rounded-2xl bg-[#FCFBF7] border border-[#D9DDD2] text-center space-y-4 shadow-2xs">
+        <div className="w-12 h-12 rounded-2xl bg-[#EAF0E3] flex items-center justify-center mx-auto text-[#00613E]">
+          <Upload className="w-6 h-6" />
+        </div>
+        <h2 className="font-display text-base font-bold text-[#0D241A]">
+          No Imagery Selected
+        </h2>
+        <p className="text-xs text-[#6D756F]">
+          Upload a 4-band 128×128 Sentinel-2 GeoTIFF or select a sample above to view comparison.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-5 rounded-2xl bg-[#FCFBF7] border border-[#D9DDD2] shadow-2xs space-y-4">
-      {/* Workspace Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="font-display text-lg font-bold text-[#0D241A] tracking-tight">
-            See the Improvement
-          </h2>
-          <p className="text-xs text-[#6D756F]">
-            Drag the slider to compare the original and enhanced image.
-          </p>
+    <div className="space-y-4">
+      {/* Workspace Header & Layer Mode Switcher */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#FCFBF7] p-3.5 rounded-2xl border border-[#D9DDD2] shadow-2xs">
+        <div className="flex items-center gap-2">
+          <Layers className="w-5 h-5 text-[#00613E]" />
+          <div>
+            <h2 className="text-sm font-bold font-display text-[#0D241A]">
+              Spectral Layer View
+            </h2>
+            <p className="text-[11px] text-[#6D756F]">
+              {modeLabel}
+            </p>
+          </div>
         </div>
 
-        {/* Band Layer Toggle */}
-        <div className="flex items-center bg-[#EAF0E3] p-0.5 rounded-lg border border-[#D9DDD2] self-start sm:self-auto">
+        {/* View Mode Buttons */}
+        <div className="flex items-center bg-[#EAF0E3] p-1 rounded-xl border border-[#D9DDD2]/60 text-xs">
           <button
             type="button"
-            className="px-3 py-1 text-xs font-semibold rounded-md bg-[#00613E] text-white shadow-2xs cursor-default"
+            onClick={() => setMode('natural_color')}
+            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+              currentMode === 'natural_color'
+                ? 'bg-[#00613E] text-white shadow-2xs'
+                : 'text-[#003F2D] hover:bg-white/50'
+            }`}
           >
             Natural Color
           </button>
           <button
             type="button"
-            disabled
-            title="Vegetation Index (NDVI) — coming soon"
-            className="px-2.5 py-1 text-xs font-normal text-slate-500 cursor-not-allowed opacity-60"
+            onClick={() => setMode('vegetation')}
+            disabled={!isCompleted}
+            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+              currentMode === 'vegetation'
+                ? 'bg-[#00613E] text-white shadow-2xs'
+                : 'text-[#003F2D] hover:bg-white/50'
+            }`}
           >
-            Vegetation
+            Vegetation (NDVI)
           </button>
           <button
             type="button"
-            disabled
-            title="Infrared false color — coming soon"
-            className="px-2.5 py-1 text-xs font-normal text-slate-500 cursor-not-allowed opacity-60"
+            onClick={() => setMode('infrared')}
+            disabled={!isCompleted}
+            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+              currentMode === 'infrared'
+                ? 'bg-[#00613E] text-white shadow-2xs'
+                : 'text-[#003F2D] hover:bg-white/50'
+            }`}
           >
-            Infrared
+            False Color (NIR)
           </button>
         </div>
       </div>
 
-      {/* Main View Area */}
-      {isCompleted && lrUrl && srUrl ? (
-        <div
-          ref={containerRef}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          onPointerMove={handlePointerMove}
-          onPointerLeave={handlePointerUp}
-          tabIndex={0}
-          role="slider"
-          aria-label="Before and after comparison slider"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={sliderPos}
-          onKeyDown={handleKeyDown}
-          className="relative w-full aspect-16/10 sm:aspect-16/9 rounded-xl overflow-hidden bg-slate-900 border border-[#D9DDD2] select-none touch-none cursor-ew-resize focus:outline-none focus:ring-2 focus:ring-[#00613E]"
-        >
-          {/* Right/Background Image (Super-Resolved SR 2.5m) */}
-          <img
-            src={srUrl}
-            alt="Super-resolved Sentinel-2 at 2.5m"
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-          />
+      {/* Main Interactive Comparison View */}
+      <ComparisonSlider
+        leftImageUrl={leftUrl}
+        rightImageUrl={rightUrl}
+        leftLabel="10m Sentinel-2 Input"
+        rightLabel="2.5m GeoSR Enhanced"
+      />
 
-          {/* Left/Foreground Clipped Image (Original LR 10m) */}
-          <div
-            style={{ width: `${sliderPos}%` }}
-            className="absolute inset-y-0 left-0 overflow-hidden"
-          >
-            <img
-              src={lrUrl}
-              alt="Original Sentinel-2 at 10m"
-              className="absolute inset-0 w-full h-full object-cover pointer-events-none max-w-none"
-              style={{
-                width: containerRef.current ? `${containerRef.current.clientWidth}px` : '100%',
-                height: '100%',
-              }}
-            />
-          </div>
-
-          {/* Vertical Divider Line */}
-          <div
-            style={{ left: `${sliderPos}%` }}
-            className="absolute inset-y-0 w-0.5 bg-white/90 shadow-[0_0_8px_rgba(0,0,0,0.5)] pointer-events-none"
-          >
-            {/* Center Circular Handle */}
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-white text-[#0D241A] shadow-md flex items-center justify-center text-xs font-bold pointer-events-none">
-              <span className="text-[10px]">◀ ▶</span>
+      {/* Vegetation Analytics Bar when in Vegetation Mode */}
+      {currentMode === 'vegetation' && (
+        <div className="p-4 rounded-2xl bg-[#FCFBF7] border border-[#D9DDD2] shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sprout className="w-4 h-4 text-[#00613E]" />
+              <h3 className="text-xs font-bold text-[#0D241A] uppercase tracking-wider">
+                Vegetation Index Diagnostics
+              </h3>
             </div>
+            <span className="text-[10px] text-[#6D756F]">Formula: (B08 - B04) / (B08 + B04)</span>
           </div>
 
-          {/* Bottom Left Badge */}
-          <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-md bg-black/75 backdrop-blur-xs text-white text-[11px] font-medium pointer-events-none">
-            Before · 10 m
-          </div>
+          {vegLoading ? (
+            <div className="text-xs text-[#6D756F] animate-pulse">Calculating analytical NDVI...</div>
+          ) : vegStats ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-2.5 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2]/80">
+                <span className="text-[#6D756F] text-[11px] block">Mean NDVI</span>
+                <strong className="text-[#0D241A] font-mono text-sm">{vegStats.mean_ndvi.toFixed(3)}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2]/80">
+                <span className="text-[#6D756F] text-[11px] block">NDVI Range</span>
+                <strong className="text-[#0D241A] font-mono text-sm">
+                  {vegStats.min_ndvi.toFixed(2)} to {vegStats.max_ndvi.toFixed(2)}
+                </strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2]/80">
+                <span className="text-[#6D756F] text-[11px] block">Vegetation Cover (&gt;0.3)</span>
+                <strong className="text-[#00613E] font-mono text-sm">
+                  {(vegStats.vegetation_fraction * 100).toFixed(1)}%
+                </strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2]/80">
+                <span className="text-[#6D756F] text-[11px] block">Valid 2.5m Pixels</span>
+                <strong className="text-[#0D241A] font-mono text-sm">
+                  {vegStats.valid_pixel_count.toLocaleString()}
+                </strong>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">Analysis unavailable until the active job is completed.</p>
+          )}
 
-          {/* Bottom Right Badge */}
-          <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-md bg-black/75 backdrop-blur-xs text-white text-[11px] font-medium pointer-events-none">
-            After · 2.5 m
-          </div>
-        </div>
-      ) : isProcessing ? (
-        <div className="w-full aspect-16/10 sm:aspect-16/9 rounded-xl bg-[#EAF0E3]/40 border border-[#D9DDD2] flex flex-col items-center justify-center p-8 text-center space-y-4">
-          <div className="p-3.5 rounded-full bg-[#003F2D] text-[#EAF0E3]">
-            <RefreshCw className="w-6 h-6 animate-spin" />
-          </div>
-          <div className="space-y-1 max-w-sm">
-            <p className="text-sm font-semibold text-[#0D241A]">
-              Super-Resolution In Progress
-            </p>
-            <p className="text-xs text-[#6D756F]">
-              {job?.current_stage || 'Executing ESA SEN2SRLite NonReference_RGBN_x4 inference...'}
-            </p>
-          </div>
-          <div className="w-full max-w-xs bg-slate-200 rounded-full h-2 overflow-hidden border border-[#D9DDD2]">
-            <div
-              className="bg-[#00613E] h-full transition-all duration-300 rounded-full"
-              style={{ width: `${job?.progress_percent || 45}%` }}
-            />
-          </div>
-        </div>
-      ) : (
-        /* Empty / Upload Dropzone State */
-        <div className="w-full aspect-16/10 sm:aspect-16/9 rounded-xl border-2 border-dashed border-[#D9DDD2] bg-[#F8F7F1]/80 hover:bg-[#F8F7F1] flex flex-col items-center justify-center p-8 text-center space-y-3 transition-colors">
-          <div className="p-3 rounded-full bg-[#EAF0E3] text-[#003F2D]">
-            <Upload className="w-6 h-6" />
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-[#0D241A]">
-              {selectedFile ? selectedFile.name : 'Select or upload a 4-band Sentinel-2 GeoTIFF'}
-            </p>
-            <p className="text-xs text-[#6D756F] max-w-md">
-              Must be a 128×128 pixel georeferenced raster in B04, B03, B02, B08 order at 10m resolution.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 pt-1">
-            <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-[#FCFBF7] border border-[#00613E] text-[#00613E] hover:bg-[#EAF0E3] cursor-pointer shadow-2xs transition-colors">
-              <Upload className="w-3.5 h-3.5" />
-              Choose GeoTIFF File
-              <input
-                type="file"
-                accept=".tif,.tiff"
-                className="hidden"
-                aria-label="Select GeoTIFF file"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    onFileSelect(e.target.files[0]);
-                  }
-                }}
-              />
-            </label>
-
-            {selectedFile && (
-              <button
-                type="button"
-                onClick={onStartEnhance}
-                disabled={loading}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-[#00613E] hover:bg-[#004F33] text-white shadow-2xs transition-colors cursor-pointer"
-              >
-                Run Live 4× Enhancement
-              </button>
-            )}
+          {/* Colormap Legend */}
+          <div className="pt-2 border-t border-[#D9DDD2]/60 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#6D756F]">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-[#0D241A]">Legend:</span>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-xs bg-[#4A648C]" />
+                <span>Water/Bare (&lt;0.1)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-xs bg-[#D4CA32]" />
+                <span>Sparse/Soil (0.1–0.3)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-xs bg-[#1E7E34]" />
+                <span>Dense Veg (&gt;0.4)</span>
+              </div>
+            </div>
+            <span className="text-[10px] text-slate-400 italic">Spectral screening; not ground-truth classification.</span>
           </div>
         </div>
       )}

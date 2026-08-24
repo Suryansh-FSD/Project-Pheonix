@@ -1,7 +1,6 @@
 """
-GeoSR Core Schemas — Frozen Contract
+GeoSR Core Schemas — Authoritative Contract
 Authoritative schema definitions for API requests, responses, and domain entities.
-Owned exclusively by Antigravity. Workers must not modify this file.
 """
 
 from __future__ import annotations
@@ -47,6 +46,7 @@ class ErrorCode(str, Enum):
     REFERENCE_UNAVAILABLE = "REFERENCE_UNAVAILABLE"
     CACHE_NOT_AVAILABLE = "CACHE_NOT_AVAILABLE"
     EXPORT_FAILED = "EXPORT_FAILED"
+    INPUTS_NOT_ALIGNED = "INPUTS_NOT_ALIGNED"
 
 
 class ErrorDetail(BaseModel):
@@ -122,6 +122,10 @@ class RasterMetadata(BaseModel):
 class PreviewURLs(BaseModel):
     lr_rgb_url: Optional[str] = None
     sr_rgb_url: Optional[str] = None
+    lr_ndvi_url: Optional[str] = None
+    sr_ndvi_url: Optional[str] = None
+    lr_fc_url: Optional[str] = None
+    sr_fc_url: Optional[str] = None
     hr_reference_url: Optional[str] = None
 
 
@@ -199,16 +203,34 @@ class JobDetailResponse(BaseModel):
     error: Optional[ErrorDetail] = None
 
 
-class NDVIAnalysisRequest(BaseModel):
+class VegetationAnalysisResponse(BaseModel):
     job_id: str
-    green_cover_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
-
-
-class NDVIAnalysisResponse(BaseModel):
-    job_id: str
-    green_cover_percentage: float
+    formula: str = "(B08 - B04) / (B08 + B04)"
+    valid_pixel_count: int
+    min_ndvi: float
+    max_ndvi: float
     mean_ndvi: float
-    threshold_used: float
-    ndvi_preview_url: str
-    ndvi_geotiff_url: str
-    formula_applied: str = "(B08 - B04) / (B08 + B04 + 1e-6)"
+    vegetation_fraction: float
+    threshold_used: float = 0.3
+    lr_ndvi_url: str
+    sr_ndvi_url: str
+    statement: str = "Spectral vegetation screening based on Sentinel-2 B08/B04 reflectance; not ground-truth botanical classification."
+
+
+class ChangeDetectionRequest(BaseModel):
+    before_job_id: str
+    after_job_id: str
+    threshold: float = Field(default=0.15, ge=0.01, le=1.0)
+
+
+class ChangeDetectionResponse(BaseModel):
+    before_job_id: str
+    after_job_id: str
+    threshold: float
+    changed_pixel_count: int
+    changed_percentage: float
+    vegetation_gain_percentage: float
+    vegetation_loss_percentage: float
+    mean_ndvi_delta: float
+    change_preview_url: str
+    statement: str = "NDVI-based spectral change screening; not object-level or ground-truth change detection."

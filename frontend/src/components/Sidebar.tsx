@@ -1,158 +1,146 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Home,
   Sparkles,
   Columns,
   BarChart3,
-  RefreshCw,
+  GitCompare,
   ShieldCheck,
   Download,
   Settings,
   HelpCircle,
-  Menu,
-  X,
-  Satellite,
 } from 'lucide-react';
 import { useJob, type AppRoute } from '../context/JobContext';
 
+interface SidebarItem {
+  id: AppRoute;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+  disabled?: boolean;
+}
+
 export const Sidebar: React.FC = () => {
-  const [mobileOpen, setMobileOpen] = useState(false);
   const { currentRoute, setRoute } = useJob();
 
-  const navItems: { id: AppRoute | 'changes'; label: string; icon: any; disabled?: boolean }[] = [
-    { id: 'home', label: 'Home', icon: Home },
+  const navItems: SidebarItem[] = [
+    { id: 'home', label: 'Overview', icon: Home },
     { id: 'enhance', label: 'Enhance Image', icon: Sparkles },
     { id: 'compare', label: 'Compare Results', icon: Columns },
     { id: 'analyze', label: 'Analyze Land', icon: BarChart3 },
-    { id: 'changes', label: 'Detect Changes', icon: RefreshCw, disabled: true },
+    { id: 'changes', label: 'Detect Changes', icon: GitCompare },
     { id: 'quality', label: 'Quality Check', icon: ShieldCheck },
     { id: 'downloads', label: 'Downloads', icon: Download },
   ];
 
-  const bottomItems: { id: AppRoute; label: string; icon: any }[] = [
+  const bottomItems: SidebarItem[] = [
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'help', label: 'Help', icon: HelpCircle },
   ];
 
   return (
-    <>
-      {/* Mobile Menu Button */}
-      <button
-        type="button"
-        onClick={() => setMobileOpen(!mobileOpen)}
-        aria-label="Toggle navigation menu"
-        className="md:hidden fixed top-3 left-3 z-50 p-2 rounded-lg bg-[#003F2D] text-white shadow-lg focus:outline-none focus:ring-2 focus:ring-[#EAF0E3]"
-      >
-        {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-      </button>
+    <aside
+      className="relative flex flex-col w-64 shrink-0 bg-[#003F2D] text-[#EAF0E3] select-none shadow-md overflow-hidden"
+      aria-label="Sidebar Navigation"
+    >
+      {/* Topographic Contour Texture Background */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.06] mix-blend-screen"
+        style={{
+          backgroundImage: `
+            repeating-radial-gradient(circle at 15% 20%, transparent 0, transparent 18px, rgba(255,255,255,0.7) 19px, transparent 20px),
+            repeating-radial-gradient(circle at 85% 75%, transparent 0, transparent 28px, rgba(255,255,255,0.6) 29px, transparent 30px),
+            repeating-radial-gradient(circle at 50% 50%, transparent 0, transparent 40px, rgba(255,255,255,0.5) 41px, transparent 42px)
+          `,
+          backgroundSize: '120px 120px, 180px 180px, 240px 240px',
+        }}
+      />
 
-      {/* Backdrop for mobile */}
-      {mobileOpen && (
-        <div
-          onClick={() => setMobileOpen(false)}
-          className="md:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
-        />
-      )}
-
-      {/* Sidebar Container */}
-      <aside
-        className={`fixed md:sticky top-0 left-0 z-40 h-screen w-60 bg-[#003F2D] bg-topo-pattern text-slate-100 flex flex-col justify-between p-4 shadow-xl transition-transform duration-300 ease-in-out shrink-0 ${
-          mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        }`}
-      >
-        <div className="space-y-6">
-          {/* Logo Brand */}
-          <button
-            type="button"
-            onClick={() => {
-              setRoute('home');
-              setMobileOpen(false);
-            }}
-            className="flex items-center gap-3 px-2 pt-2 text-left cursor-pointer w-full focus:outline-none"
-          >
-            <div className="w-9 h-9 rounded-full bg-[#EAF0E3] flex items-center justify-center text-[#003F2D] shadow-sm">
-              <Satellite className="w-5 h-5 rotate-45" />
+      {/* Brand Header */}
+      <div className="relative z-10 px-5 pt-6 pb-4 border-b border-[#004F33]/60">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#16744A] to-[#00613E] flex items-center justify-center shadow-xs border border-emerald-400/20">
+            <Sparkles className="w-4 h-4 text-emerald-200" />
+          </div>
+          <div>
+            <div className="font-display font-bold text-lg tracking-tight text-white flex items-center gap-1.5">
+              <span>GeoSR</span>
+              <span className="text-[10px] uppercase font-mono tracking-widest px-1.5 py-0.2 rounded-md bg-[#16744A]/60 text-emerald-200 border border-emerald-400/30">
+                2.5m
+              </span>
             </div>
-            <span className="font-display text-2xl tracking-tight font-bold text-[#FCFBF7]">
-              GeoSR
-            </span>
-          </button>
+            <p className="text-[11px] text-[#A5C4B4] font-medium tracking-wide">
+              Satellite Super-Resolution
+            </p>
+          </div>
+        </div>
+      </div>
 
-          {/* Navigation Items */}
-          <nav aria-label="Main Navigation" className="space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = currentRoute === item.id;
+      {/* Main Nav Items */}
+      <nav className="relative z-10 flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="Main Navigation">
+        <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-[#7BA693]">
+          Workspace
+        </div>
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = currentRoute === item.id;
+          const isDisabled = item.disabled;
 
-              if (item.disabled) {
-                return (
-                  <div key={item.id} className="relative group">
-                    <button
-                      type="button"
-                      disabled
-                      aria-disabled="true"
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300/80 hover:text-white text-sm font-normal transition-colors cursor-not-allowed opacity-60"
-                    >
-                      <Icon className="w-4 h-4 text-slate-400" />
-                      <span>{item.label}</span>
-                    </button>
-                    <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 hidden group-hover:inline-block px-2.5 py-1 bg-slate-900 text-[11px] text-slate-200 rounded shadow-lg whitespace-nowrap z-50">
-                      Coming soon — backend capability unavailable
-                    </span>
-                  </div>
-                );
-              }
-
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    setRoute(item.id as AppRoute);
-                    setMobileOpen(false);
-                  }}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer text-left ${
-                    isActive
-                      ? 'bg-[#EAF0E3] text-[#003F2D] shadow-xs font-semibold'
-                      : 'text-slate-200 hover:bg-white/10 hover:text-white'
+          return (
+            <button
+              key={item.id}
+              type="button"
+              disabled={isDisabled}
+              onClick={() => !isDisabled && setRoute(item.id)}
+              className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left ${
+                isDisabled
+                  ? 'opacity-40 cursor-not-allowed text-[#7BA693]'
+                  : isActive
+                  ? 'bg-[#16744A] text-white shadow-2xs font-semibold'
+                  : 'text-[#EAF0E3] hover:bg-[#004F33]/80 hover:text-white cursor-pointer'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive ? 'text-emerald-200' : 'text-[#A5C4B4]'
                   }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-[#003F2D]' : 'text-slate-400'}`} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+                />
+                <span className="truncate">{item.label}</span>
+              </div>
+              {item.badge && (
+                <span className="shrink-0 text-[10px] font-mono uppercase px-1.5 py-0.5 rounded-md bg-white/10 text-emerald-200">
+                  {item.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
-        {/* Bottom items */}
-        <div className="space-y-1 pt-4 border-t border-white/10">
-          {bottomItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentRoute === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setRoute(item.id);
-                  setMobileOpen(false);
-                }}
-                aria-current={isActive ? 'page' : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer text-left ${
-                  isActive
-                    ? 'bg-[#EAF0E3] text-[#003F2D] font-semibold'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-    </>
+      {/* Footer Navigation */}
+      <div className="relative z-10 p-3 border-t border-[#004F33]/60 space-y-1 bg-[#003626]">
+        {bottomItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = currentRoute === item.id;
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setRoute(item.id)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-left cursor-pointer ${
+                isActive
+                  ? 'bg-[#16744A] text-white shadow-2xs font-semibold'
+                  : 'text-[#A5C4B4] hover:bg-[#004F33] hover:text-white'
+              }`}
+            >
+              <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-200' : 'text-[#7BA693]'}`} />
+              <span className="truncate">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </aside>
   );
 };

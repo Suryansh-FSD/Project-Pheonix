@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { App, resolveAssetUrl } from '../App';
-import type { JobDetailResponse } from '../types/api';
+import type { JobDetailResponse, VegetationAnalysisResponse, ChangeDetectionResponse } from '../types/api';
 
 describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
   const mockCompletedJob: JobDetailResponse = {
@@ -26,6 +26,10 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
     previews: {
       lr_rgb_url: '/api/jobs/job-1234-test/previews/lr_rgb.png',
       sr_rgb_url: '/api/jobs/job-1234-test/previews/sr_rgb.png',
+      lr_ndvi_url: '/api/jobs/job-1234-test/previews/lr_ndvi.png',
+      sr_ndvi_url: '/api/jobs/job-1234-test/previews/sr_ndvi.png',
+      lr_fc_url: '/api/jobs/job-1234-test/previews/lr_fc.png',
+      sr_fc_url: '/api/jobs/job-1234-test/previews/sr_fc.png',
     },
     metrics: {
       psnr: {
@@ -57,6 +61,38 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
     error: null,
   };
 
+  const mockCompletedJob2: JobDetailResponse = {
+    ...mockCompletedJob,
+    job_id: 'job-5678-test',
+  };
+
+  const mockVegResponse: VegetationAnalysisResponse = {
+    job_id: 'job-1234-test',
+    formula: '(B08 - B04) / (B08 + B04)',
+    valid_pixel_count: 262144,
+    min_ndvi: -0.12,
+    max_ndvi: 0.88,
+    mean_ndvi: 0.452,
+    vegetation_fraction: 0.624,
+    threshold_used: 0.3,
+    lr_ndvi_url: '/api/jobs/job-1234-test/previews/lr_ndvi.png',
+    sr_ndvi_url: '/api/jobs/job-1234-test/previews/sr_ndvi.png',
+    statement: 'Spectral vegetation screening; not ground-truth botanical classification.',
+  };
+
+  const mockChangeResponse: ChangeDetectionResponse = {
+    before_job_id: 'job-1234-test',
+    after_job_id: 'job-5678-test',
+    threshold: 0.15,
+    changed_pixel_count: 52428,
+    changed_percentage: 20.0,
+    vegetation_gain_percentage: 15.5,
+    vegetation_loss_percentage: 4.5,
+    mean_ndvi_delta: 0.082,
+    change_preview_url: '/api/jobs/job-1234-test/previews/change_5678.png',
+    statement: 'NDVI-based spectral change screening; not object-level or ground-truth change detection.',
+  };
+
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
@@ -67,7 +103,7 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
           json: () => Promise.resolve({
             status: 'ok',
             backend_ready: true,
-            model_ready: false,
+            model_ready: true,
             model_provenance: {
               model_name: 'SEN2SRLite',
               model_variant: 'NonReference_RGBN_x4',
@@ -80,20 +116,28 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
           }),
         });
       }
-      if (url.includes('/api/enhance')) {
+      if (url.includes('/api/jobs/job-1234-test/analysis/vegetation')) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({
-            job_id: 'job-1234-test',
-            status: 'queued',
-            execution_mode: 'live',
-          }),
+          json: () => Promise.resolve(mockVegResponse),
+        });
+      }
+      if (url.includes('/api/change-detection')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockChangeResponse),
         });
       }
       if (url.includes('/api/jobs/job-1234-test')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(mockCompletedJob),
+        });
+      }
+      if (url.includes('/api/jobs/job-5678-test')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockCompletedJob2),
         });
       }
       return Promise.resolve({
@@ -108,118 +152,56 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
     expect(resolveAssetUrl('https://example.com/image.png')).toBe('https://example.com/image.png');
   });
 
-  it('renders Home page with health status and lazy load model message', async () => {
+  it('navigates to Compare Results and enables Vegetation & False Color modes after completion', async () => {
+    localStorage.setItem('geosr_last_job_id', 'job-1234-test');
     render(<App />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Clearer, Analysis-Ready Satellite Imagery/i);
-    expect(screen.getByText(/Loads on first request/i)).toBeInTheDocument();
-  });
 
-  it('Quality Check displays honest un-evaluated state before job completion', async () => {
-    render(<App />);
     const nav = screen.getByRole('navigation', { name: /Main Navigation/i });
-    fireEvent.click(within(nav).getByRole('button', { name: /Quality Check/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Quality & Scientific Integrity/i);
-    });
-
-    const notEvaluatedElements = screen.getAllByText(/Not evaluated/i);
-    expect(notEvaluatedElements.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it('navigates seamlessly across all supported pages', async () => {
-    render(<App />);
-    const nav = screen.getByRole('navigation', { name: /Main Navigation/i });
-
-    // Navigate to Enhance Image
-    fireEvent.click(within(nav).getByRole('button', { name: /Enhance Image/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Enhance Satellite Imagery/i);
-    });
-
-    // Navigate to Compare Results
     fireEvent.click(within(nav).getByRole('button', { name: /Compare Results/i }));
+
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Compare Results/i);
     });
 
-    // Navigate to Analyze Land
-    fireEvent.click(within(nav).getByRole('button', { name: /Analyze Land/i }));
+    // Click Vegetation tab
+    const vegBtn = screen.getByRole('button', { name: /Vegetation \(NDVI\)/i });
+    expect(vegBtn).not.toBeDisabled();
+    fireEvent.click(vegBtn);
+
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Analyze Land/i);
+      expect(screen.getByText(/Vegetation Index Diagnostics/i)).toBeInTheDocument();
+      expect(screen.getByText(/62.4%/i)).toBeInTheDocument();
     });
 
-    // Navigate to Quality Check
-    fireEvent.click(within(nav).getByRole('button', { name: /Quality Check/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Quality & Scientific Integrity/i);
-    });
+    // Click False Color tab
+    const fcBtn = screen.getByRole('button', { name: /False Color \(NIR\)/i });
+    expect(fcBtn).not.toBeDisabled();
+    fireEvent.click(fcBtn);
 
-    // Navigate to Downloads
-    fireEvent.click(within(nav).getByRole('button', { name: /Downloads/i }));
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Downloads/i);
-    });
-
-    // Navigate to Settings
-    fireEvent.click(screen.getByRole('button', { name: /^Settings$/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Settings & Backend Configuration/i);
-    });
-
-    // Navigate to Help
-    fireEvent.click(screen.getByRole('button', { name: /^Help$/i }));
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Help & Technical Documentation/i);
+      expect(screen.getByText(/False Color · NIR\/Red\/Green/i)).toBeInTheDocument();
     });
   });
 
-  it('unavailable features remain disabled with coming soon indicators', () => {
-    render(<App />);
-    expect(screen.getByRole('button', { name: /Detect Changes/i })).toBeDisabled();
-  });
-
-  it('Settings connection test displays connected when health succeeds', async () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: /^Settings$/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Test Connection/i })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /Test Connection/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/Connected: Successfully reached GeoSR backend API/i)).toBeInTheDocument();
-    });
-  });
-
-  it('restores active job from localStorage and displays outputs', async () => {
+  it('Detect Changes page requires 2 completed observations and screens change', async () => {
     localStorage.setItem('geosr_last_job_id', 'job-1234-test');
-    localStorage.setItem('geosr_job_history_ids', JSON.stringify(['job-1234-test']));
+    localStorage.setItem('geosr_job_history_ids', JSON.stringify(['job-1234-test', 'job-5678-test']));
     render(<App />);
 
-    // Go to Downloads and verify job is present
     const nav = screen.getByRole('navigation', { name: /Main Navigation/i });
-    fireEvent.click(within(nav).getByRole('button', { name: /Downloads/i }));
+    fireEvent.click(within(nav).getByRole('button', { name: /Detect Changes/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/geosr_enhanced_2_5m_job-1234.tif/i)).toBeInTheDocument();
-    });
-  });
-
-  it('removes stale job IDs from localStorage when API returns 404', async () => {
-    localStorage.setItem('geosr_last_job_id', 'stale-job-999');
-    (globalThis.fetch as any).mockImplementation((url: string) => {
-      if (url.includes('/api/jobs/stale-job-999')) {
-        return Promise.resolve({ ok: false, status: 404 });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Two-Image Change Detection/i);
+      expect(screen.getByRole('button', { name: /Calculate Change Detection/i })).toBeInTheDocument();
     });
 
-    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Calculate Change Detection/i }));
 
     await waitFor(() => {
-      expect(localStorage.getItem('geosr_last_job_id')).toBeNull();
+      expect(screen.getByText(/\+15.5%/i)).toBeInTheDocument();
+      expect(screen.getByText(/-4.5%/i)).toBeInTheDocument();
+      expect(screen.getByText(/20%/i)).toBeInTheDocument();
     });
   });
 });

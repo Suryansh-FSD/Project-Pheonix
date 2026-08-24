@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { JobDetailResponse, HealthResponse } from '../types/api';
+import type {
+  JobDetailResponse,
+  HealthResponse,
+  VegetationAnalysisResponse,
+  ChangeDetectionRequest,
+  ChangeDetectionResponse,
+} from '../types/api';
 import { buildAssetUrl } from '../utils/url';
 
 export type AppRoute =
@@ -7,6 +13,7 @@ export type AppRoute =
   | 'enhance'
   | 'compare'
   | 'analyze'
+  | 'changes'
   | 'quality'
   | 'downloads'
   | 'settings'
@@ -28,6 +35,8 @@ interface JobContextType {
   clearJobHistory: () => void;
   refreshHealth: () => Promise<HealthResponse>;
   resolveAssetUrl: (path: string | null | undefined) => string;
+  getVegetationAnalysis: (jobId: string) => Promise<VegetationAnalysisResponse>;
+  runChangeDetection: (req: ChangeDetectionRequest) => Promise<ChangeDetectionResponse>;
 }
 
 const JobContext = createContext<JobContextType | undefined>(undefined);
@@ -73,6 +82,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'enhance',
         'compare',
         'analyze',
+        'changes',
         'quality',
         'downloads',
         'settings',
@@ -90,7 +100,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Fetch Health - strictly returns data or throws
+  // Fetch Health
   const refreshHealth = useCallback(async (): Promise<HealthResponse> => {
     const url = buildAssetUrl('/api/health', API_BASE);
     const res = await fetch(url);
@@ -235,6 +245,28 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [selectedFile]
   );
 
+  const getVegetationAnalysis = useCallback(async (jobId: string): Promise<VegetationAnalysisResponse> => {
+    const res = await fetch(buildAssetUrl(`/api/jobs/${jobId}/analysis/vegetation`, API_BASE));
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err?.detail?.message || 'Failed to fetch vegetation analysis.');
+    }
+    return res.json();
+  }, []);
+
+  const runChangeDetection = useCallback(async (req: ChangeDetectionRequest): Promise<ChangeDetectionResponse> => {
+    const res = await fetch(buildAssetUrl('/api/change-detection', API_BASE), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err?.detail?.message || 'Failed to compute change detection.');
+    }
+    return res.json();
+  }, []);
+
   const clearJobHistory = useCallback(() => {
     localStorage.removeItem(STORAGE_LAST_JOB_KEY);
     localStorage.removeItem(STORAGE_JOB_HISTORY_KEY);
@@ -261,6 +293,8 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearJobHistory,
         refreshHealth,
         resolveAssetUrl,
+        getVegetationAnalysis,
+        runChangeDetection,
       }}
     >
       {children}

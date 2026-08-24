@@ -7,11 +7,15 @@ import time
 from pathlib import Path
 from typing import Any, List, Optional
 
+import numpy as np
+import rasterio
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.core.schemas import (
     CacheMetadata,
+    ChangeDetectionRequest,
+    ChangeDetectionResponse,
     DownloadLinks,
     ErrorDetail,
     ErrorCode,
@@ -26,6 +30,7 @@ from app.core.schemas import (
     SampleSummary,
     SourceType,
     ValidationMetrics,
+    VegetationAnalysisResponse,
 )
 from app.jobs.manager import job_manager
 from app.model.adapter import model_adapter
@@ -37,6 +42,9 @@ from app.processing.raster import (
     OUTPUT_PIXEL_SIZE_M,
     SCALE_FACTOR,
     RasterValidationError,
+    calculate_ndvi,
+    generate_change_preview,
+    generate_ndvi_preview,
     process_live_geotiff,
     validate_input,
 )
@@ -49,7 +57,16 @@ CHUNK_SIZE = 1024 * 1024  # 1 MB chunk for streaming
 SAMPLES_METADATA_FILE = Path("data/demo/metadata.json")
 
 
-def _run_inference_sync(input_tif: Path, enhanced_tif: Path, lr_png: Path, sr_png: Path) -> dict[str, Any]:
+def _run_inference_sync(
+    input_tif: Path,
+    enhanced_tif: Path,
+    lr_png: Path,
+    sr_png: Path,
+    lr_ndvi_png: Path,
+    sr_ndvi_png: Path,
+    lr_fc_png: Path,
+    sr_fc_png: Path,
+) -> dict[str, Any]:
     """Blocking CPU processing function called inside asyncio.to_thread."""
     if not model_adapter.is_ready():
         model_adapter.load_model()
@@ -59,6 +76,10 @@ def _run_inference_sync(input_tif: Path, enhanced_tif: Path, lr_png: Path, sr_pn
         lr_preview_path=lr_png,
         sr_preview_path=sr_png,
         adapter=model_adapter,
+        lr_ndvi_path=lr_ndvi_png,
+        sr_ndvi_path=sr_ndvi_png,
+        lr_fc_path=lr_fc_png,
+        sr_fc_path=sr_fc_png,
     )
 
 
@@ -76,16 +97,24 @@ async def _run_live_inference_pipeline(job_id: str, input_tif: Path):
             enhanced_tif = job_dir / "enhanced_2_5m.tif"
             lr_png = job_dir / "lr_rgb.png"
             sr_png = job_dir / "sr_rgb.png"
+            lr_ndvi_png = job_dir / "lr_ndvi.png"
+            sr_ndvi_png = job_dir / "sr_ndvi.png"
+            lr_fc_png = job_dir / "lr_fc.png"
+            sr_fc_png = job_dir / "sr_fc.png"
 
             job_manager.update_job_progress(job_id, 40, "Running SEN2SRLite 4x Inference")
 
-            # Execute real model inference in worker thread
+            # Execute real model inference & analytical preview generation in worker thread
             res = await asyncio.to_thread(
                 _run_inference_sync,
                 input_tif,
                 enhanced_tif,
                 lr_png,
                 sr_png,
+                lr_ndvi_png,
+                sr_ndvi_png,
+                lr_fc_png,
+                sr_fc_png,
             )
 
             job_manager.update_job_progress(job_id, 90, "Finalizing Output Rasters")
@@ -106,6 +135,10 @@ async def _run_live_inference_pipeline(job_id: str, input_tif: Path):
                 previews=PreviewURLs(
                     lr_rgb_url=f"/api/jobs/{job_id}/previews/lr_rgb.png",
                     sr_rgb_url=f"/api/jobs/{job_id}/previews/sr_rgb.png",
+                    lr_ndvi_url=f"/api/jobs/{job_id}/previews/lr_ndvi.png",
+                    sr_ndvi_url=f"/api/jobs/{job_id}/previews/sr_ndvi.png",
+                    lr_fc_url=f"/api/jobs/{job_id}/previews/lr_fc.png",
+                    sr_fc_url=f"/api/jobs/{job_id}/previews/sr_fc.png",
                 ),
                 metrics=ValidationMetrics(
                     psnr=MetricEntry(
@@ -318,25 +351,192 @@ def get_job_status(job_id: str) -> JobDetailResponse:
     return job
 
 
-@router.get("/jobs/{job_id}/previews/{filename}")
-def get_job_preview(job_id: str, filename: str):
-    """Serve job preview PNG images."""
+@router.get("/jobs/{job_id}/analysis/vegetation", response_model=VegetationAnalysisResponse)
+def get_vegetation_analysis(job_id: str) -> VegetationAnalysisResponse:
+    """
+    Calculate NDVI analytical metrics strictly on the enhanced raw GeoTIFF surface reflectance.
+    NDVI = (B08 - B04) / (B08 + B04).
+    """
     if not job_manager.is_valid_job_id(job_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID."},
         )
-    if filename not in {"lr_rgb.png", "sr_rgb.png", "hr_ref.png"}:
+    job = job_manager.get_job(job_id)
+    if not job or job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Job is not completed yet."},
+        )
+
+    job_dir = job_manager.get_job_dir(job_id)
+    sr_tif = job_dir / "enhanced_2_5m.tif"
+    sr_ndvi_png = job_dir / "sr_ndvi.png"
+    lr_ndvi_png = job_dir / "lr_ndvi.png"
+
+    if not sr_tif.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_FILE.value, "message": "Enhanced GeoTIFF not found."},
+        )
+
+    with rasterio.open(sr_tif) as src:
+        sr_data = src.read(out_dtype=np.float32)
+
+    # Ensure SR NDVI preview is generated and get statistics
+    _, stats = generate_ndvi_preview(sr_data, sr_ndvi_png)
+
+    return VegetationAnalysisResponse(
+        job_id=job_id,
+        formula="(B08 - B04) / (B08 + B04)",
+        valid_pixel_count=stats["valid_pixel_count"],
+        min_ndvi=stats["min_ndvi"],
+        max_ndvi=stats["max_ndvi"],
+        mean_ndvi=stats["mean_ndvi"],
+        vegetation_fraction=stats["vegetation_fraction"],
+        threshold_used=stats["threshold_used"],
+        lr_ndvi_url=f"/api/jobs/{job_id}/previews/lr_ndvi.png",
+        sr_ndvi_url=f"/api/jobs/{job_id}/previews/sr_ndvi.png",
+        statement="Spectral vegetation screening based on Sentinel-2 B08/B04 reflectance; not ground-truth botanical classification.",
+    )
+
+
+@router.post("/change-detection", response_model=ChangeDetectionResponse)
+def compute_change_detection(req: ChangeDetectionRequest) -> ChangeDetectionResponse:
+    """
+    Calculate spectral change between two completed, spatially aligned 4-band jobs.
+    delta = NDVI_after - NDVI_before.
+    """
+    if not job_manager.is_valid_job_id(req.before_job_id) or not job_manager.is_valid_job_id(req.after_job_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID format."},
+        )
+
+    if req.before_job_id == req.after_job_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Before and After must be two different completed jobs."},
+        )
+
+    job_before = job_manager.get_job(req.before_job_id)
+    job_after = job_manager.get_job(req.after_job_id)
+
+    if not job_before or job_before.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Before job '{req.before_job_id}' is not completed."},
+        )
+
+    if not job_after or job_after.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"After job '{req.after_job_id}' is not completed."},
+        )
+
+    dir_before = job_manager.get_job_dir(req.before_job_id)
+    dir_after = job_manager.get_job_dir(req.after_job_id)
+
+    tif_before = dir_before / "enhanced_2_5m.tif"
+    tif_after = dir_after / "enhanced_2_5m.tif"
+
+    if not tif_before.exists() or not tif_after.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_FILE.value, "message": "Enhanced GeoTIFF files not found for change detection."},
+        )
+
+    with rasterio.open(tif_before) as src_b, rasterio.open(tif_after) as src_a:
+        # Strict Alignment Validation
+        if src_b.crs != src_a.crs:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
+                    "message": f"CRS mismatch: '{src_b.crs}' vs '{src_a.crs}'.",
+                    "suggested_action": "Select two jobs sharing the exact same coordinate system.",
+                },
+            )
+
+        if (src_b.height, src_b.width) != (src_a.height, src_a.width):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
+                    "message": f"Dimensions mismatch: {src_b.width}x{src_b.height} vs {src_a.width}x{src_a.height}.",
+                    "suggested_action": "Both inputs must share identical dimensions.",
+                },
+            )
+
+        if not np.allclose(src_b.transform, src_a.transform, atol=1e-3):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": ErrorCode.INPUTS_NOT_ALIGNED.value,
+                    "message": "Spatial affine transform and resolution mismatch between images.",
+                    "suggested_action": "Select two observations covering the exact same spatial grid.",
+                },
+            )
+
+        data_before = src_b.read(out_dtype=np.float32)
+        data_after = src_a.read(out_dtype=np.float32)
+
+    change_filename = f"change_{req.after_job_id[:8]}.png"
+    change_png_path = dir_before / change_filename
+
+    _, change_stats = generate_change_preview(
+        before_4band=data_before,
+        after_4band=data_after,
+        threshold=req.threshold,
+        output_png=change_png_path,
+    )
+
+    return ChangeDetectionResponse(
+        before_job_id=req.before_job_id,
+        after_job_id=req.after_job_id,
+        threshold=change_stats["threshold"],
+        changed_pixel_count=change_stats["changed_pixel_count"],
+        changed_percentage=change_stats["changed_percentage"],
+        vegetation_gain_percentage=change_stats["vegetation_gain_percentage"],
+        vegetation_loss_percentage=change_stats["vegetation_loss_percentage"],
+        mean_ndvi_delta=change_stats["mean_ndvi_delta"],
+        change_preview_url=f"/api/jobs/{req.before_job_id}/previews/{change_filename}",
+        statement="NDVI-based spectral change screening; not object-level or ground-truth change detection.",
+    )
+
+
+@router.get("/jobs/{job_id}/previews/{filename}")
+def get_job_preview(job_id: str, filename: str):
+    """Serve job preview PNG images (Natural Color, False Color, NDVI, and Change)."""
+    if not job_manager.is_valid_job_id(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": ErrorCode.INVALID_REQUEST.value, "message": "Invalid job ID."},
+        )
+    allowed_previews = {
+        "lr_rgb.png",
+        "sr_rgb.png",
+        "lr_ndvi.png",
+        "sr_ndvi.png",
+        "lr_fc.png",
+        "sr_fc.png",
+        "hr_ref.png",
+    }
+    is_change_preview = filename.startswith("change_") and filename.endswith(".png")
+
+    if filename not in allowed_previews and not is_change_preview:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Invalid preview filename: '{filename}'."},
         )
+
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": ErrorCode.INVALID_REQUEST.value, "message": f"Job '{job_id}' not found."},
         )
+
     job_dir = job_manager.get_job_dir(job_id)
     file_path = job_dir / filename
     if not file_path.exists():
