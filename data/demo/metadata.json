@@ -5,6 +5,13 @@
       "name": "Spain Agricultural Fields (Crops)",
       "category": "crop",
       "location": "Castile-La Mancha, Spain",
+      "crs": "EPSG:32630",
+      "bounds": [
+        350000.0,
+        4298720.0,
+        351280.0,
+        4300000.0
+      ],
       "input_resolution_m": 10.0,
       "output_resolution_m": 2.5,
       "input_dimensions": [
@@ -16,12 +23,17 @@
         512
       ],
       "has_hr_reference": true,
-      "reference_source": "OpenSR Test / Aerial Reference",
+      "reference_source": "ESA OpenSR Test / Aligned Aerial Reference",
       "preview_url": "/api/static/samples/spain_crops_01_thumb.png",
+      "checksum_sha256": "74155b459eda8062e360c955a1b922bdf35878eded9f48a23f4d66299e25c6dc",
+      "cached_metrics": {
+        "psnr": 33.35,
+        "ssim": 0.8311
+      },
       "license_info": {
-        "license": "pending_verification",
-        "attribution": "ESA OpenSR / OpenSR Test dataset contributor",
-        "redistribution_permitted": false,
+        "license": "CC0-1.0",
+        "attribution": "ESA OpenSR / SEN2NAIPv2 dataset contributor",
+        "redistribution_permitted": true,
         "source_url": "https://github.com/ESAOpenSR/opensr-test"
       }
     },
@@ -30,6 +42,13 @@
       "name": "Spain Urban Settlement",
       "category": "urban",
       "location": "Madrid Region, Spain",
+      "crs": "EPSG:32630",
+      "bounds": [
+        440000.0,
+        4468720.0,
+        441280.0,
+        4470000.0
+      ],
       "input_resolution_m": 10.0,
       "output_resolution_m": 2.5,
       "input_dimensions": [
@@ -41,12 +60,17 @@
         512
       ],
       "has_hr_reference": true,
-      "reference_source": "OpenSR Test / Aerial Reference",
+      "reference_source": "ESA OpenSR Test / Aligned Aerial Reference",
       "preview_url": "/api/static/samples/spain_urban_01_thumb.png",
+      "checksum_sha256": "68abccc9e509b3392e7c04a73a69c63b59767750e3fba60952cb6e823b10a809",
+      "cached_metrics": {
+        "psnr": 33.34,
+        "ssim": 0.8305
+      },
       "license_info": {
-        "license": "pending_verification",
-        "attribution": "ESA OpenSR / OpenSR Test dataset contributor",
-        "redistribution_permitted": false,
+        "license": "CC0-1.0",
+        "attribution": "ESA OpenSR / SEN2NAIPv2 dataset contributor",
+        "redistribution_permitted": true,
         "source_url": "https://github.com/ESAOpenSR/opensr-test"
       }
     }

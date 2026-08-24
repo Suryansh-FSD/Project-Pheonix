@@ -1,10 +1,13 @@
 """
 GeoSR SEN2SRLite Super-Resolution Model Adapter
 Wraps the ESA OpenSR SEN2SRLite NonReference_RGBN_x4 baseline.
-Owned by recovery/scientific.
+Owned by final/scientific.
 """
 
 from __future__ import annotations
+import hashlib
+import json
+import os
 from pathlib import Path
 from threading import Lock
 from typing import Any, Optional
@@ -12,7 +15,24 @@ import mlstac
 import torch
 
 MODEL_ARTIFACT_URI = "tacofoundation/sen2sr/SEN2SRLite/NonReference_RGBN_x4"
-DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[3] / "models" / "SEN2SRLite_RGBN"
+
+def _resolve_models_root() -> Path:
+    # 1. Environment variable override
+    if "GEOSR_MODELS_DIR" in os.environ:
+        return Path(os.environ["GEOSR_MODELS_DIR"])
+    # 2. Local repo relative path
+    local_path = Path(__file__).resolve().parents[3] / "models"
+    if (local_path / "SEN2SRLite_RGBN").exists():
+        return local_path
+    # 3. Main workspace path
+    workspace_path = Path("/Users/suryanshdixit/Desktop/VyomSight/models")
+    if (workspace_path / "SEN2SRLite_RGBN").exists():
+        return workspace_path
+    return local_path
+
+MODELS_ROOT = _resolve_models_root()
+DEFAULT_MODEL_DIR = MODELS_ROOT / "SEN2SRLite_RGBN"
+MANIFEST_PATH = MODELS_ROOT / "manifest.json"
 INPUT_SHAPE = (1, 4, 128, 128)
 OUTPUT_SHAPE = (1, 4, 512, 512)
 
@@ -22,27 +42,64 @@ class ModelInferenceError(RuntimeError):
 
 
 class SuperResolutionModel:
-    """Owns model lifecycle, device detection, warm-up, and real 4x inference."""
+    """Owns model lifecycle, device detection, manifest verification, warm-up, and real 4x inference."""
 
     def __init__(self) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model: Optional[torch.nn.Module] = None
         self.last_error: Optional[Exception] = None
+        self.provenance_info: dict[str, Any] = {
+            "model_name": "SEN2SRLite",
+            "model_variant": "NonReference_RGBN_x4",
+            "code_repository": "https://github.com/ESAOpenSR/SEN2SR",
+            "artifact_uri": MODEL_ARTIFACT_URI,
+            "artifact_revision": "1.1.0",
+            "artifact_sha256": "479aa796d5068d0b1206118ccbca27bd3223df0214db1a9b31a1e18349ed1c7e",
+            "code_license": "CC0-1.0",
+            "weights_license": "unverified",
+        }
         self._load_lock = Lock()
 
+    def verify_manifest(self, model_dir: Path) -> bool:
+        """Verify all model artifact files against manifest.json SHA-256 hashes."""
+        manifest_file = model_dir.parent / "manifest.json"
+        if not manifest_file.exists():
+            manifest_file = MANIFEST_PATH
+        if not manifest_file.exists():
+            return False
+
+        try:
+            with open(manifest_file, "r") as f:
+                manifest = json.load(f)
+            files = manifest.get("files", {})
+            for filename, meta in files.items():
+                target_file = model_dir / filename
+                if not target_file.exists():
+                    return False
+                if target_file.stat().st_size != meta["size"]:
+                    return False
+                h = hashlib.sha256(target_file.read_bytes()).hexdigest()
+                if h != meta["sha256"]:
+                    return False
+            return True
+        except Exception:
+            return False
+
     def load_model(self, weights_path: Optional[Path] = None) -> bool:
-        """Load and warm up model once. Returns True if ready, False on failure."""
+        """Load, verify, and warm up model once. Returns True if ready, False on failure."""
         with self._load_lock:
             if self.is_ready():
                 return True
 
             self.last_error = None
             try:
-                model_dir = weights_path if weights_path is not None else DEFAULT_MODEL_DIR
-                model_dir = Path(model_dir)
+                model_dir = Path(weights_path if weights_path is not None else DEFAULT_MODEL_DIR)
 
                 if not model_dir.exists():
                     raise FileNotFoundError(f"Model artifact not found at {model_dir}")
+
+                if not self.verify_manifest(model_dir):
+                    raise RuntimeError("Model artifact failed SHA-256 manifest verification.")
 
                 loader = mlstac.load(str(model_dir))
                 if hasattr(loader, "compiled_model"):
