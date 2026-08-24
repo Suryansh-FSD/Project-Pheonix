@@ -39,6 +39,8 @@ models/weights/*
 models/*.pt
 models/*.pth
 models/*.onnx
+models/SEN2SRLite_RGBN/
+models/provenance.json
 
 # Raw Geospatial Raster Demo Assets
 data/demo/*.tif
