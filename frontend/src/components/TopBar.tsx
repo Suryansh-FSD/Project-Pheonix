@@ -8,7 +8,7 @@ export const TopBar: React.FC = () => {
       <div className="flex md:hidden items-center justify-between p-2.5 rounded-xl bg-[#003F2D] text-white border border-[#004F33] shadow-sm">
         <div className="flex items-center gap-2.5">
           <img
-            src="/project-pheonix-logo.png"
+            src="/project-phoenix-logo.png"
             alt="Project Phoenix logo"
             className="h-8 w-8 object-contain drop-shadow-[0_2px_8px_rgba(234,88,12,0.4)]"
           />
