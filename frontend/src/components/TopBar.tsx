@@ -4,16 +4,22 @@ import { Search, Calendar, Bell, Globe2 } from 'lucide-react';
 export const TopBar: React.FC = () => {
   return (
     <header className="w-full flex flex-col gap-3 pb-2">
-      {/* Mobile Logo Banner */}
-      <div className="flex md:hidden items-center justify-between p-2 rounded-xl bg-[#003F2D] text-white border border-[#004F33]">
-        <div className="flex items-center gap-2">
+      {/* Mobile Logo Banner — Seamless Phoenix Emblem & Wordmark */}
+      <div className="flex md:hidden items-center justify-between p-2.5 rounded-xl bg-[#003F2D] text-white border border-[#004F33] shadow-sm">
+        <div className="flex items-center gap-2.5">
           <img
             src="/project-pheonix-logo.png"
             alt="Project Pheonix logo"
-            className="h-7 w-auto object-contain"
+            className="h-8 w-8 object-contain drop-shadow-[0_2px_8px_rgba(234,88,12,0.4)]"
           />
+          <div>
+            <span className="font-display font-bold text-sm tracking-tight text-white block">
+              Project Pheonix
+            </span>
+            <p className="text-[10px] text-[#A5C4B4]">2.5m Super-Resolution</p>
+          </div>
         </div>
-        <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-[#16744A] text-emerald-100">
+        <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[#16744A] text-emerald-100 border border-emerald-400/20">
           2.5m
         </span>
       </div>

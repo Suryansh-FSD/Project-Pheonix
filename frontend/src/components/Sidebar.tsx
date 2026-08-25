@@ -56,19 +56,32 @@ export const Sidebar: React.FC = () => {
         }}
       />
 
-      {/* Official Project Pheonix Brand Header */}
-      <div className="relative z-10 px-4 pt-5 pb-4 border-b border-[#004F33]/60 flex flex-col items-center">
-        <div className="w-full flex items-center justify-center p-1.5 rounded-xl bg-black/30 border border-white/10 shadow-inner">
+      {/* Brand Header — Seamless Phoenix Emblem & Typography */}
+      <div className="relative z-10 px-4 pt-5 pb-4 border-b border-[#004F33]/60 flex flex-col items-center text-center">
+        <div className="relative flex items-center justify-center mb-1.5">
+          {/* Subtle warm radiant ambient glow */}
+          <div className="absolute w-20 h-20 bg-gradient-to-tr from-amber-500/25 via-orange-500/20 to-transparent rounded-full blur-xl pointer-events-none" />
           <img
             src="/project-pheonix-logo.png"
             alt="Project Pheonix logo"
-            className="w-full max-w-[190px] h-auto object-contain"
+            className="w-16 h-16 object-contain relative z-10 drop-shadow-[0_4px_12px_rgba(234,88,12,0.35)] transition-transform duration-300 hover:scale-105"
           />
         </div>
-        <div className="mt-2.5 flex items-center gap-1.5">
-          <span className="text-[10px] uppercase font-mono tracking-wider px-2 py-0.5 rounded-md bg-[#16744A]/80 text-emerald-100 border border-emerald-400/30">
-            Satellite Super-Resolution · 2.5m
-          </span>
+
+        <div className="space-y-0.5">
+          <div className="font-display font-extrabold text-lg tracking-tight text-white flex items-center justify-center gap-1.5">
+            <span className="bg-gradient-to-r from-amber-200 via-orange-200 to-white bg-clip-text text-transparent">
+              Project Pheonix
+            </span>
+          </div>
+          <p className="text-[11px] text-[#A5C4B4] font-medium tracking-wide">
+            Satellite Super-Resolution
+          </p>
+          <div className="pt-1">
+            <span className="text-[10px] uppercase font-mono tracking-widest px-2 py-0.5 rounded-md bg-[#16744A]/80 text-emerald-100 border border-emerald-400/30">
+              2.5m Resolution
+            </span>
+          </div>
         </div>
       </div>
 
