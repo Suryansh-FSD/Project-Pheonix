@@ -47,21 +47,23 @@ const STORAGE_LAST_JOB_KEY = 'geosr_last_job_id';
 const STORAGE_JOB_HISTORY_KEY = 'geosr_job_history_ids';
 const STORAGE_CUSTOM_API_KEY = 'geosr_custom_api_base';
 
+const DEFAULT_MODAL_URL = 'https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run';
+
 const getInitialApiBase = (): string => {
   try {
     const custom = localStorage.getItem(STORAGE_CUSTOM_API_KEY);
-    if (custom && custom.trim()) {
+    if (custom && custom.trim() && custom.trim().startsWith('http')) {
       return custom.trim().replace(/\/+$/, '');
     }
   } catch {}
   const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (envBase) {
+  if (envBase && envBase.startsWith('http')) {
     return envBase;
   }
   if (import.meta.env.DEV) {
     return 'http://localhost:8000';
   }
-  return 'https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run';
+  return DEFAULT_MODAL_URL;
 };
 
 export const API_BASE = getInitialApiBase();
@@ -88,7 +90,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const isProdMissingApiBase = import.meta.env.PROD && !apiBase;
+  const isProdMissingApiBase = false;
 
   // Hash-based routing synchronization
   const setRoute = useCallback((route: AppRoute) => {
@@ -124,15 +126,28 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Fetch Health
   const refreshHealth = useCallback(async (customBase?: string): Promise<HealthResponse> => {
-    const targetBase = customBase !== undefined ? customBase : apiBase;
-    const url = buildAssetUrl('/api/health', targetBase);
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText || 'Health check failed'}`);
+    let targetBase = customBase !== undefined ? customBase : apiBase;
+    if (!targetBase || !targetBase.trim()) {
+      targetBase = DEFAULT_MODAL_URL;
     }
-    const data: HealthResponse = await res.json();
-    setHealth(data);
-    return data;
+    const url = buildAssetUrl('/api/health', targetBase);
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data: HealthResponse = await res.json();
+        setHealth(data);
+        return data;
+      }
+    } catch {}
+
+    const fallbackUrl = targetBase.includes('modal.run') ? '/api/health' : `${DEFAULT_MODAL_URL}/api/health`;
+    const resFallback = await fetch(fallbackUrl);
+    if (!resFallback.ok) {
+      throw new Error(`HTTP ${resFallback.status}: Health check failed`);
+    }
+    const dataFallback: HealthResponse = await resFallback.json();
+    setHealth(dataFallback);
+    return dataFallback;
   }, [apiBase]);
 
   const setApiBaseUrl = useCallback(async (url: string): Promise<HealthResponse> => {
