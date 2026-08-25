@@ -56,23 +56,19 @@ export const Sidebar: React.FC = () => {
         }}
       />
 
-      {/* Brand Header */}
-      <div className="relative z-10 px-5 pt-6 pb-4 border-b border-[#004F33]/60">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#16744A] to-[#00613E] flex items-center justify-center shadow-xs border border-emerald-400/20">
-            <Sparkles className="w-4 h-4 text-emerald-200" />
-          </div>
-          <div>
-            <div className="font-display font-bold text-lg tracking-tight text-white flex items-center gap-1.5">
-              <span>GeoSR</span>
-              <span className="text-[10px] uppercase font-mono tracking-widest px-1.5 py-0.2 rounded-md bg-[#16744A]/60 text-emerald-200 border border-emerald-400/30">
-                2.5m
-              </span>
-            </div>
-            <p className="text-[11px] text-[#A5C4B4] font-medium tracking-wide">
-              Satellite Super-Resolution
-            </p>
-          </div>
+      {/* Official Project Pheonix Brand Header */}
+      <div className="relative z-10 px-4 pt-5 pb-4 border-b border-[#004F33]/60 flex flex-col items-center">
+        <div className="w-full flex items-center justify-center p-1.5 rounded-xl bg-black/30 border border-white/10 shadow-inner">
+          <img
+            src="/project-pheonix-logo.png"
+            alt="Project Pheonix logo"
+            className="w-full max-w-[190px] h-auto object-contain"
+          />
+        </div>
+        <div className="mt-2.5 flex items-center gap-1.5">
+          <span className="text-[10px] uppercase font-mono tracking-wider px-2 py-0.5 rounded-md bg-[#16744A]/80 text-emerald-100 border border-emerald-400/30">
+            Satellite Super-Resolution · 2.5m
+          </span>
         </div>
       </div>
 

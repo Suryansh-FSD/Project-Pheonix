@@ -1,5 +1,5 @@
 /**
- * GeoSR Core Frontend Types — Authoritative Contract
+ * Project Pheonix Core Frontend Types — Authoritative Contract
  * Directly mirrors backend/app/core/schemas.py.
  */
 

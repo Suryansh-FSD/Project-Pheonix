@@ -4,7 +4,7 @@ import { App } from '../App';
 import { resolveAssetUrl } from '../context/JobContext';
 import type { JobDetailResponse, VegetationAnalysisResponse, ChangeDetectionResponse } from '../types/api';
 
-describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
+describe('Project Pheonix Frontend Full Page & Navigation Integration Tests', () => {
   const mockCompletedJob: JobDetailResponse = {
     job_id: 'job-1234-test',
     status: 'completed',
@@ -191,7 +191,7 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
 
     // Wait for jobs to populate
     await waitFor(() => {
-      expect(screen.getByText(/2.5m/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/2.5m/i).length).toBeGreaterThan(0);
     });
 
     const nav = screen.getByRole('navigation', { name: /Main Navigation/i });

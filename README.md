@@ -8,12 +8,12 @@ app_port: 7860
 pinned: false
 ---
 
-# GeoSR — SIH 2026 MVP
+# Project Pheonix — SIH 2026 MVP
 
 > Deep Learning Based Super Resolution Mapping from Medium Resolution Satellite Imagery (10 m to 2.5 m)
 
 ## Overview
-GeoSR is a local-first geospatial super-resolution platform designed to enhance 10 m Sentinel-2 RGB+NIR imagery to 2.5 m resolution using the official open-source ESA `SEN2SRLite` (`NonReference_RGBN_x4`) baseline architecture.
+Project Pheonix is a geospatial super-resolution platform designed to enhance 10 m Sentinel-2 RGB+NIR imagery to 2.5 m resolution using the official open-source ESA `SEN2SRLite` (`NonReference_RGBN_x4`) baseline architecture.
 
 ## Specifications
 - [Product Requirements Document (PRD)](PRD.md)

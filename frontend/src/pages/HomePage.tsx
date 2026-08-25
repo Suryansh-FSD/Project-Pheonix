@@ -20,7 +20,7 @@ export const HomePage: React.FC = () => {
         <div className="space-y-3 max-w-xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#EAF0E3] text-[#003F2D] text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Sentinel-2 4× Super-Resolution</span>
+            <span>Project Pheonix · Sentinel-2 4× Super-Resolution</span>
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-[#0D241A] leading-tight">
             Clearer, Analysis-Ready Satellite Imagery
