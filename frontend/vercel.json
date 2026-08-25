@@ -1,9 +1,20 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm build",
-  "outputDirectory": "dist",
   "framework": "vite",
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version" }
+      ]
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run/api/:path*"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
