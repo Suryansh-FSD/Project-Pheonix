@@ -8,7 +8,7 @@
       "destination": "https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run/api/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
