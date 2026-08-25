@@ -126,28 +126,51 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Fetch Health
   const refreshHealth = useCallback(async (customBase?: string): Promise<HealthResponse> => {
-    let targetBase = customBase !== undefined ? customBase : apiBase;
-    if (!targetBase || !targetBase.trim()) {
+    let targetBase = (customBase !== undefined ? customBase : apiBase) || DEFAULT_MODAL_URL;
+    if (!targetBase.startsWith('http')) {
       targetBase = DEFAULT_MODAL_URL;
     }
-    const url = buildAssetUrl('/api/health', targetBase);
+
+    // 1. Direct fetch to configured API base
     try {
+      const url = buildAssetUrl('/api/health', targetBase);
       const res = await fetch(url);
-      if (res.ok) {
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
         const data: HealthResponse = await res.json();
-        setHealth(data);
-        return data;
+        if (data && data.status === 'ok') {
+          setHealth(data);
+          return data;
+        }
       }
     } catch {}
 
-    const fallbackUrl = targetBase.includes('modal.run') ? '/api/health' : `${DEFAULT_MODAL_URL}/api/health`;
-    const resFallback = await fetch(fallbackUrl);
-    if (!resFallback.ok) {
-      throw new Error(`HTTP ${resFallback.status}: Health check failed`);
+    // 2. Direct fetch to DEFAULT_MODAL_URL
+    if (targetBase !== DEFAULT_MODAL_URL) {
+      try {
+        const resModal = await fetch(`${DEFAULT_MODAL_URL}/api/health`);
+        if (resModal.ok && resModal.headers.get('content-type')?.includes('application/json')) {
+          const dataModal: HealthResponse = await resModal.json();
+          if (dataModal && dataModal.status === 'ok') {
+            setHealth(dataModal);
+            return dataModal;
+          }
+        }
+      } catch {}
     }
-    const dataFallback: HealthResponse = await resFallback.json();
-    setHealth(dataFallback);
-    return dataFallback;
+
+    // 3. Fallback Vercel proxy fetch
+    try {
+      const resVercel = await fetch('/api/health');
+      if (resVercel.ok && resVercel.headers.get('content-type')?.includes('application/json')) {
+        const dataVercel: HealthResponse = await resVercel.json();
+        if (dataVercel && dataVercel.status === 'ok') {
+          setHealth(dataVercel);
+          return dataVercel;
+        }
+      }
+    } catch {}
+
+    throw new Error('Health check failed across all endpoints');
   }, [apiBase]);
 
   const setApiBaseUrl = useCallback(async (url: string): Promise<HealthResponse> => {
