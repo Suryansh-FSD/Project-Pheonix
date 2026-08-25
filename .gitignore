@@ -10,11 +10,6 @@ Thumbs.db
 .vscode/
 .aicb/
 
-# Root Node Artifacts (Development Only)
-/package.json
-/package-lock.json
-/node_modules/
-
 # Frontend
 frontend/node_modules/
 frontend/dist/
@@ -62,3 +57,4 @@ data/demo/*.tif
 data/demo/*.tiff
 smoke_test_128.tif
 backend/outputs/
+node_modules/
