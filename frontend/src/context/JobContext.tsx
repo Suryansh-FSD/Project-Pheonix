@@ -52,12 +52,16 @@ const DEFAULT_MODAL_URL = 'https://suryansh-fsd--project-pheonix-backend-modalap
 const getInitialApiBase = (): string => {
   try {
     const custom = localStorage.getItem(STORAGE_CUSTOM_API_KEY);
-    if (custom && custom.trim() && custom.trim().startsWith('http')) {
-      return custom.trim().replace(/\/+$/, '');
+    if (custom && custom.trim()) {
+      const clean = custom.trim().replace(/\/+$/, '');
+      if (clean.startsWith('http') && !clean.includes(' ') && !clean.includes('trycloudflare.com')) {
+        return clean;
+      }
     }
+    localStorage.removeItem(STORAGE_CUSTOM_API_KEY);
   } catch {}
   const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (envBase && envBase.startsWith('http')) {
+  if (envBase && envBase.startsWith('http') && !envBase.includes(' ') && !envBase.includes('trycloudflare.com')) {
     return envBase;
   }
   if (import.meta.env.DEV) {
@@ -179,6 +183,17 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setApiBaseState(cleanUrl);
     return await refreshHealth(cleanUrl);
   }, [refreshHealth]);
+
+  // Auto-purge stale or corrupted custom API base keys from localStorage on mount
+  useEffect(() => {
+    try {
+      const custom = localStorage.getItem(STORAGE_CUSTOM_API_KEY);
+      if (custom && (custom.includes('trycloudflare') || custom.includes(' ') || !custom.startsWith('http'))) {
+        localStorage.removeItem(STORAGE_CUSTOM_API_KEY);
+        setApiBaseState(DEFAULT_MODAL_URL);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
