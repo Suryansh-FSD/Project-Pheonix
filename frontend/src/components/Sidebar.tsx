@@ -62,8 +62,8 @@ export const Sidebar: React.FC = () => {
           {/* Subtle warm radiant ambient glow */}
           <div className="absolute w-20 h-20 bg-gradient-to-tr from-amber-500/25 via-orange-500/20 to-transparent rounded-full blur-xl pointer-events-none" />
           <img
-            src="/project-pheonix-logo.png"
-            alt="Project Pheonix logo"
+            src="/project-phoenix-logo.png"
+            alt="Project Phoenix logo"
             className="w-16 h-16 object-contain relative z-10 drop-shadow-[0_4px_12px_rgba(234,88,12,0.35)] transition-transform duration-300 hover:scale-105"
           />
         </div>
@@ -71,7 +71,7 @@ export const Sidebar: React.FC = () => {
         <div className="space-y-0.5">
           <div className="font-display font-extrabold text-lg tracking-tight text-white flex items-center justify-center gap-1.5">
             <span className="bg-gradient-to-r from-amber-200 via-orange-200 to-white bg-clip-text text-transparent">
-              Project Pheonix
+              Project Phoenix
             </span>
           </div>
           <p className="text-[11px] text-[#A5C4B4] font-medium tracking-wide">

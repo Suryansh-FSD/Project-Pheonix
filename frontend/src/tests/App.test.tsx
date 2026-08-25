@@ -4,7 +4,7 @@ import { App } from '../App';
 import { resolveAssetUrl } from '../context/JobContext';
 import type { JobDetailResponse, VegetationAnalysisResponse, ChangeDetectionResponse } from '../types/api';
 
-describe('Project Pheonix Frontend Full Page & Navigation Integration Tests', () => {
+describe('Project Phoenix Frontend Full Page & Navigation Integration Tests', () => {
   const mockCompletedJob: JobDetailResponse = {
     job_id: 'job-1234-test',
     status: 'completed',

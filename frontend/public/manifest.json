@@ -1,7 +1,7 @@
 {
-  "name": "Project Pheonix",
-  "short_name": "Project Pheonix",
-  "description": "Project Pheonix — 4x Satellite Super-Resolution turning 10m Sentinel-2 imagery into clearer, analysis-ready 2.5m maps.",
+  "name": "Project Phoenix",
+  "short_name": "Project Phoenix",
+  "description": "Project Phoenix — 4x Satellite Super-Resolution turning 10m Sentinel-2 imagery into clearer, analysis-ready 2.5m maps.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#003F2D",

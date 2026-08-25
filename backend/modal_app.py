@@ -1,5 +1,5 @@
 """
-Project Pheonix Modal Serverless Deployment Configuration.
+Project Phoenix Modal Serverless Deployment Configuration.
 Exposes the FastAPI + SEN2SRLite backend on Modal serverless infrastructure.
 """
 

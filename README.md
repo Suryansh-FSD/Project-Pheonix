@@ -8,12 +8,11 @@ app_port: 7860
 pinned: false
 ---
 
-# Project Pheonix — SIH 2026 MVP
+# Project Phoenix — SIH 2026 MVP
 
-> Deep Learning Based Super Resolution Mapping from Medium Resolution Satellite Imagery (10 m to 2.5 m)
+> 4× Geospatial Super-Resolution Platform powered by ESA SEN2SRLite.
 
-## Overview
-Project Pheonix is a geospatial super-resolution platform designed to enhance 10 m Sentinel-2 RGB+NIR imagery to 2.5 m resolution using the official open-source ESA `SEN2SRLite` (`NonReference_RGBN_x4`) baseline architecture.
+Project Phoenix is a geospatial super-resolution platform designed to enhance 10 m Sentinel-2 RGB+NIR imagery to 2.5 m resolution using the official open-source ESA `SEN2SRLite` (`NonReference_RGBN_x4`) baseline architecture.
 
 ## Specifications
 - [Product Requirements Document (PRD)](PRD.md)

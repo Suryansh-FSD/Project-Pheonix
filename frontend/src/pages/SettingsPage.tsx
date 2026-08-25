@@ -113,7 +113,7 @@ export const SettingsPage: React.FC = () => {
           {connectionState === 'connected' && (
             <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-[#16744A] flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-[#16744A]" />
-              <span>Connected: Successfully reached Project Pheonix backend API ({health?.model_provenance?.model_name || 'SEN2SRLite'}).</span>
+              <span>Connected: Successfully reached Project Phoenix backend API ({health?.model_provenance?.model_name || 'SEN2SRLite'}).</span>
             </div>
           )}
 

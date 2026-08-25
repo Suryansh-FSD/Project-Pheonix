@@ -150,7 +150,7 @@ export const ComparisonWorkspace: React.FC<ComparisonWorkspaceProps> = (props) =
         leftImageUrl={leftUrl}
         rightImageUrl={rightUrl}
         leftLabel="10m Sentinel-2 Input"
-        rightLabel="2.5m Project Pheonix Enhanced"
+        rightLabel="2.5m Project Phoenix Enhanced"
       />
 
       {/* Vegetation Analytics Bar when in Vegetation Mode */}

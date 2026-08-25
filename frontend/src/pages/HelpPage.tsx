@@ -10,7 +10,7 @@ export const HelpPage: React.FC = () => {
           Help & Technical Documentation
         </h1>
         <p className="text-xs sm:text-sm text-[#6D756F] pt-0.5">
-          Specifications, input constraints, and troubleshooting guidelines for Project Pheonix.
+          Specifications, input constraints, and troubleshooting guidelines for Project Phoenix.
         </p>
       </div>
 
@@ -93,7 +93,7 @@ export const HelpPage: React.FC = () => {
           <div className="p-3 rounded-xl bg-[#EAF0E3]/40 border border-[#D9DDD2] space-y-1">
             <strong className="text-[#0D241A] block">Why does my upload say &ldquo;Reference unavailable&rdquo;?</strong>
             <p className="text-[#6D756F]">
-              Scientific metrics like PSNR and SSIM require an aligned sub-meter aerial ground-truth reference image. For arbitrary user uploads, no such reference exists, so Project Pheonix honestly displays &ldquo;Reference unavailable&rdquo; rather than displaying fabricated scores.
+              Scientific metrics like PSNR and SSIM require an aligned sub-meter aerial ground-truth reference image. For arbitrary user uploads, no such reference exists, so Project Phoenix honestly displays &ldquo;Reference unavailable&rdquo; rather than displaying fabricated scores.
             </p>
           </div>
 

@@ -1,5 +1,5 @@
 /**
- * Project Pheonix Core Frontend Types — Authoritative Contract
+ * Project Phoenix Core Frontend Types — Authoritative Contract
  * Directly mirrors backend/app/core/schemas.py.
  */
 

@@ -9,12 +9,12 @@ export const TopBar: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <img
             src="/project-pheonix-logo.png"
-            alt="Project Pheonix logo"
+            alt="Project Phoenix logo"
             className="h-8 w-8 object-contain drop-shadow-[0_2px_8px_rgba(234,88,12,0.4)]"
           />
           <div>
             <span className="font-display font-bold text-sm tracking-tight text-white block">
-              Project Pheonix
+              Project Phoenix
             </span>
             <p className="text-[10px] text-[#A5C4B4]">2.5m Super-Resolution</p>
           </div>
