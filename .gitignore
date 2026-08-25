@@ -50,6 +50,7 @@ outputs/jobs/*
 .env
 .env.local
 .env.*.local
+!frontend/.env.production
 *.egg-info/
 data/demo/cache/
 data/demo/*.png
