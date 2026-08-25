@@ -61,7 +61,7 @@ const getInitialApiBase = (): string => {
   if (import.meta.env.DEV) {
     return 'http://localhost:8000';
   }
-  return '';
+  return 'https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run';
 };
 
 export const API_BASE = getInitialApiBase();
