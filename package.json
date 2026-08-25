@@ -2,11 +2,7 @@
   "name": "geosr-satellite-super-resolution",
   "private": true,
   "scripts": {
-    "build": "cd frontend && pnpm build",
-    "dev": "cd frontend && pnpm dev",
-    "lint": "cd frontend && pnpm lint"
-  },
-  "devDependencies": {
-    "shadcn": "^4.19.0"
+    "build": "cd frontend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev"
   }
 }
