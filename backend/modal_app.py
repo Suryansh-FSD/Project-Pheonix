@@ -57,6 +57,7 @@ modal_image = (
         "/root/backend/outputs": outputs_volume,
     },
     timeout=600,
+    min_containers=1,
     max_containers=1,
 )
 class ModalApp:

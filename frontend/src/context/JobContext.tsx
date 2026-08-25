@@ -143,9 +143,20 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [refreshHealth]);
 
   useEffect(() => {
-    refreshHealth().catch(() => {
-      setHealth(null);
-    });
+    let isMounted = true;
+    const runCheck = () => {
+      refreshHealth().catch(() => {
+        if (isMounted) {
+          setHealth(null);
+        }
+      });
+    };
+    runCheck();
+    const interval = setInterval(runCheck, 10000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [refreshHealth]);
 
   // Restore last job on mount
