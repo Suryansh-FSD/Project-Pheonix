@@ -70,6 +70,30 @@ const getInitialApiBase = (): string => {
   return DEFAULT_MODAL_URL;
 };
 
+const fetchWithFallback = async (path: string, options?: RequestInit, base?: string): Promise<Response> => {
+  const targetBase = base || getInitialApiBase() || DEFAULT_MODAL_URL;
+  try {
+    const url = buildAssetUrl(path, targetBase);
+    const res = await fetch(url, options);
+    if (res.ok || res.status < 500) {
+      return res;
+    }
+  } catch {}
+
+  if (targetBase !== DEFAULT_MODAL_URL) {
+    try {
+      const modalUrl = `${DEFAULT_MODAL_URL}${path.startsWith('/') ? '' : '/'}${path}`;
+      const resModal = await fetch(modalUrl, options);
+      if (resModal.ok || resModal.status < 500) {
+        return resModal;
+      }
+    } catch {}
+  }
+
+  const proxyUrl = path.startsWith('/api/') ? path : `/api${path.startsWith('/') ? '' : '/'}${path}`;
+  return await fetch(proxyUrl, options);
+};
+
 export const API_BASE = getInitialApiBase();
 
 export const resolveAssetUrl = (path: string | null | undefined): string => {
@@ -216,7 +240,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const lastId = localStorage.getItem(STORAGE_LAST_JOB_KEY);
     if (lastId && !activeJob) {
-      fetch(buildAssetUrl(`/api/jobs/${lastId}`, apiBase))
+      fetchWithFallback(`/api/jobs/${lastId}`, undefined, apiBase)
         .then((res) => {
           if (res.ok) return res.json();
           if (res.status === 404) {
@@ -247,7 +271,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     Promise.all(
       recentJobIds.map((id) =>
-        fetch(buildAssetUrl(`/api/jobs/${id}`, apiBase))
+        fetchWithFallback(`/api/jobs/${id}`, undefined, apiBase)
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null)
       )
@@ -264,7 +288,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const interval = setInterval(() => {
-      fetch(buildAssetUrl(`/api/jobs/${activeJob.job_id}`, apiBase))
+      fetchWithFallback(`/api/jobs/${activeJob.job_id}`, undefined, apiBase)
         .then((res) => {
           if (res.ok) return res.json();
           if (res.status === 404) {
@@ -305,10 +329,10 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       formData.append('file', fileToUpload);
 
       try {
-        const res = await fetch(buildAssetUrl('/api/enhance', apiBase), {
+        const res = await fetchWithFallback('/api/enhance', {
           method: 'POST',
           body: formData,
-        });
+        }, apiBase);
 
         if (!res.ok) {
           const errData = await res.json();
@@ -325,7 +349,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return updated;
         });
 
-        const jobRes = await fetch(buildAssetUrl(`/api/jobs/${newJobId}`, apiBase));
+        const jobRes = await fetchWithFallback(`/api/jobs/${newJobId}`, undefined, apiBase);
         if (jobRes.ok) {
           const jobData = await jobRes.json();
           setActiveJob(jobData);
@@ -340,7 +364,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const getVegetationAnalysis = useCallback(async (jobId: string): Promise<VegetationAnalysisResponse> => {
-    const res = await fetch(buildAssetUrl(`/api/jobs/${jobId}/analysis/vegetation`, apiBase));
+    const res = await fetchWithFallback(`/api/jobs/${jobId}/analysis/vegetation`, undefined, apiBase);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err?.detail?.message || 'Failed to fetch vegetation analysis.');
@@ -349,11 +373,11 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [apiBase]);
 
   const runChangeDetection = useCallback(async (req: ChangeDetectionRequest): Promise<ChangeDetectionResponse> => {
-    const res = await fetch(buildAssetUrl('/api/change-detection', apiBase), {
+    const res = await fetchWithFallback('/api/change-detection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
-    });
+    }, apiBase);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err?.detail?.message || 'Failed to compute change detection.');
