@@ -98,9 +98,9 @@ export const HelpPage: React.FC = () => {
           </div>
 
           <div className="p-3 rounded-xl bg-[#EAF0E3]/40 border border-[#D9DDD2] space-y-1">
-            <strong className="text-[#0D241A] block">How does Cloudflare Quick Tunnel work?</strong>
+            <strong className="text-[#0D241A] block">How does Modal Serverless Cloud Deployment work?</strong>
             <p className="text-[#6D756F]">
-              The public backend URL is proxied via Cloudflare Tunnel from the local Mac workstation. The URL remains active as long as the host terminal process stays awake.
+              The backend FastAPI &amp; SEN2SRLite super-resolution inference service runs on Modal serverless cloud infrastructure with warm container model loading.
             </p>
           </div>
         </div>

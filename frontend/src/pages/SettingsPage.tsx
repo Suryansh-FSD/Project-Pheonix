@@ -63,14 +63,14 @@ export const SettingsPage: React.FC = () => {
         <form onSubmit={handleSaveAndConnect} className="space-y-3 text-xs">
           <div className="space-y-1.5">
             <label className="text-[#6D756F] font-semibold block">
-              Active Backend Base URL (Cloudflare Tunnel or Localhost):
+              Active Backend Base URL (Modal Cloud or Localhost):
             </label>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://your-tunnel.trycloudflare.com or http://127.0.0.1:8000"
+                placeholder="https://your-app.modal.run or http://127.0.0.1:8000"
                 className="flex-1 p-2.5 rounded-xl bg-white border border-[#D9DDD2] font-mono text-xs text-[#0D241A] focus:outline-none focus:ring-2 focus:ring-[#00613E]"
               />
               <button

@@ -55,7 +55,13 @@ const getInitialApiBase = (): string => {
     }
   } catch {}
   const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  return envBase || 'https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run';
+  if (envBase) {
+    return envBase;
+  }
+  if (import.meta.env.DEV) {
+    return 'http://localhost:8000';
+  }
+  return '';
 };
 
 export const API_BASE = getInitialApiBase();
