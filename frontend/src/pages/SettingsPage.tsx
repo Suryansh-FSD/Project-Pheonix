@@ -85,9 +85,28 @@ export const SettingsPage: React.FC = () => {
                 )}
                 {connectionState === 'connecting' ? 'Connecting...' : 'Save & Test Connection'}
               </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const defaultUrl = 'https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run';
+                  setUrlInput(defaultUrl);
+                  setConnectionState('connecting');
+                  try {
+                    await setApiBaseUrl(defaultUrl);
+                    setConnectionState('connected');
+                  } catch (err: any) {
+                    setConnectionState('failed');
+                    setErrorMessage(err.message || 'Failed to connect to Modal cloud endpoint.');
+                  }
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#EAF0E3] hover:bg-[#D9DDD2] text-[#00613E] border border-[#D9DDD2] shadow-2xs transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Reset to Modal Cloud
+              </button>
             </div>
             <p className="text-[11px] text-[#6D756F]">
-              Enter the active Cloudflare Tunnel URL or leave empty for local development proxy.
+              Enter custom backend API URL or click <strong>Reset to Modal Cloud</strong> to use production serverless backend.
             </p>
           </div>
 
