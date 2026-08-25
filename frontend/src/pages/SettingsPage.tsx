@@ -1,30 +1,26 @@
 import React, { useState } from 'react';
-import { Settings, RefreshCw, CheckCircle2, AlertTriangle, Trash2, Globe, Server } from 'lucide-react';
-import { useJob, API_BASE } from '../context/JobContext';
+import { Settings, RefreshCw, CheckCircle2, AlertTriangle, Trash2, Globe, Server, Save } from 'lucide-react';
+import { useJob } from '../context/JobContext';
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'failed' | 'missing_url';
 
 export const SettingsPage: React.FC = () => {
-  const { health, refreshHealth, clearJobHistory, recentJobIds, isProdMissingApiBase } = useJob();
+  const { health, clearJobHistory, recentJobIds, isProdMissingApiBase, apiBase, setApiBaseUrl } = useJob();
+  const [urlInput, setUrlInput] = useState<string>(apiBase);
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleTestConnection = async () => {
-    if (isProdMissingApiBase) {
-      setConnectionState('missing_url');
-      setErrorMessage('API URL missing: VITE_API_BASE_URL is not set in this production build.');
-      return;
-    }
-
+  const handleSaveAndConnect = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setConnectionState('connecting');
     setErrorMessage(null);
 
     try {
-      await refreshHealth();
+      await setApiBaseUrl(urlInput);
       setConnectionState('connected');
     } catch (err: any) {
       setConnectionState('failed');
-      setErrorMessage(err.message || 'Request failed');
+      setErrorMessage(err.message || 'Request failed to reach backend endpoint.');
     }
   };
 
@@ -38,18 +34,18 @@ export const SettingsPage: React.FC = () => {
           Settings & Backend Configuration
         </h1>
         <p className="text-xs sm:text-sm text-[#6D756F] pt-0.5">
-          Inspect backend connectivity, environment configuration, and local storage state.
+          Inspect backend connectivity, update live Cloudflare tunnel endpoints, and manage local session storage.
         </p>
       </div>
 
-      {/* Production Warning if VITE_API_BASE_URL is missing */}
+      {/* Production Warning if API base is completely empty in production */}
       {isProdMissingApiBase && (
         <div role="alert" className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="space-y-0.5">
-            <p className="font-semibold">Missing Production API Configuration</p>
+            <p className="font-semibold">Backend Endpoint Not Configured</p>
             <p className="text-amber-800">
-              <code>VITE_API_BASE_URL</code> is not defined in this Vercel deployment. Requests will fail unless configured in Vercel project environment variables.
+              Please paste your active Cloudflare Tunnel URL below and click <strong>Save & Test Connection</strong>.
             </p>
           </div>
         </div>
@@ -64,46 +60,51 @@ export const SettingsPage: React.FC = () => {
           </h2>
         </div>
 
-        <div className="space-y-3 text-xs">
-          <div className="p-3 rounded-xl bg-[#EAF0E3]/60 border border-[#D9DDD2] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <span className="text-[#6D756F] block">Configured API Base URL:</span>
-              <strong className="font-mono text-[#003F2D] text-xs">
-                {API_BASE || '(Local Development Proxy: /api)'}
-              </strong>
+        <form onSubmit={handleSaveAndConnect} className="space-y-3 text-xs">
+          <div className="space-y-1.5">
+            <label className="text-[#6D756F] font-semibold block">
+              Active Backend Base URL (Cloudflare Tunnel or Localhost):
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                placeholder="https://your-tunnel.trycloudflare.com or http://127.0.0.1:8000"
+                className="flex-1 p-2.5 rounded-xl bg-white border border-[#D9DDD2] font-mono text-xs text-[#0D241A] focus:outline-none focus:ring-2 focus:ring-[#00613E]"
+              />
+              <button
+                type="submit"
+                disabled={connectionState === 'connecting'}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#00613E] hover:bg-[#004F33] text-white shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {connectionState === 'connecting' ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                {connectionState === 'connecting' ? 'Connecting...' : 'Save & Test Connection'}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleTestConnection}
-              disabled={connectionState === 'connecting'}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#00613E] hover:bg-[#004F33] text-white shadow-2xs transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${connectionState === 'connecting' ? 'animate-spin' : ''}`} />
-              {connectionState === 'connecting' ? 'Connecting...' : 'Test Connection'}
-            </button>
+            <p className="text-[11px] text-[#6D756F]">
+              Enter the active Cloudflare Tunnel URL or leave empty for local development proxy.
+            </p>
           </div>
 
           {connectionState === 'connected' && (
-            <p className="text-xs font-semibold text-[#16744A] flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" />
-              Connected: Successfully reached GeoSR backend API.
-            </p>
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-[#16744A] flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-[#16744A]" />
+              <span>Connected: Successfully reached GeoSR backend API ({health?.model_provenance?.model_name || 'SEN2SRLite'}).</span>
+            </div>
           )}
 
           {connectionState === 'failed' && (
-            <p className="text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-800 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-600" />
-              Request failed: {errorMessage}
-            </p>
+              <span>Connection Failed: {errorMessage}</span>
+            </div>
           )}
-
-          {connectionState === 'missing_url' && (
-            <p className="text-xs font-semibold text-amber-700 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-              API URL missing: VITE_API_BASE_URL is not set.
-            </p>
-          )}
-        </div>
+        </form>
       </section>
 
       {/* Service Info */}

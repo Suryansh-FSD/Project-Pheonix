@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { App, resolveAssetUrl } from '../App';
+import { App } from '../App';
+import { resolveAssetUrl } from '../context/JobContext';
 import type { JobDetailResponse, VegetationAnalysisResponse, ChangeDetectionResponse } from '../types/api';
 
 describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
@@ -149,8 +150,9 @@ describe('GeoSR Frontend Full Page & Navigation Integration Tests', () => {
   });
 
   it('resolves relative asset URLs with resolveAssetUrl correctly', () => {
-    expect(resolveAssetUrl('/api/jobs/123/previews/lr.png')).toBe('/api/jobs/123/previews/lr.png');
     expect(resolveAssetUrl('https://example.com/image.png')).toBe('https://example.com/image.png');
+    const path = resolveAssetUrl('/api/jobs/123/previews/lr.png');
+    expect(path).toContain('/api/jobs/123/previews/lr.png');
   });
 
   it('navigates to Compare Results and enables Vegetation & False Color modes after completion', async () => {

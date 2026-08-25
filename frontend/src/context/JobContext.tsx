@@ -28,9 +28,11 @@ interface JobContextType {
   loading: boolean;
   errorMsg: string | null;
   currentRoute: AppRoute;
+  apiBase: string;
   isProdMissingApiBase: boolean;
   setRoute: (route: AppRoute) => void;
   setSelectedFile: (file: File | null) => void;
+  setApiBaseUrl: (url: string) => Promise<HealthResponse>;
   startEnhance: (fileOverride?: File) => Promise<void>;
   clearJobHistory: () => void;
   refreshHealth: () => Promise<HealthResponse>;
@@ -41,18 +43,29 @@ interface JobContextType {
 
 const JobContext = createContext<JobContextType | undefined>(undefined);
 
-export const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').trim();
-export const IS_PROD_MISSING_API_BASE = import.meta.env.PROD && !API_BASE;
-
-export const resolveAssetUrl = (path: string | null | undefined): string => {
-  return buildAssetUrl(path, API_BASE);
-};
-
 const STORAGE_LAST_JOB_KEY = 'geosr_last_job_id';
 const STORAGE_JOB_HISTORY_KEY = 'geosr_job_history_ids';
+const STORAGE_CUSTOM_API_KEY = 'geosr_custom_api_base';
+
+const getInitialApiBase = (): string => {
+  try {
+    const custom = localStorage.getItem(STORAGE_CUSTOM_API_KEY);
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  } catch {}
+  return (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+};
+
+export const API_BASE = getInitialApiBase();
+
+export const resolveAssetUrl = (path: string | null | undefined): string => {
+  return buildAssetUrl(path, getInitialApiBase());
+};
 
 export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentRoute, setCurrentRouteState] = useState<AppRoute>('home');
+  const [apiBase, setApiBaseState] = useState<string>(getInitialApiBase);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [activeJob, setActiveJob] = useState<JobDetailResponse | null>(null);
   const [recentJobIds, setRecentJobIds] = useState<string[]>(() => {
@@ -67,6 +80,8 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const isProdMissingApiBase = import.meta.env.PROD && !apiBase;
 
   // Hash-based routing synchronization
   const setRoute = useCallback((route: AppRoute) => {
@@ -101,8 +116,9 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Fetch Health
-  const refreshHealth = useCallback(async (): Promise<HealthResponse> => {
-    const url = buildAssetUrl('/api/health', API_BASE);
+  const refreshHealth = useCallback(async (customBase?: string): Promise<HealthResponse> => {
+    const targetBase = customBase !== undefined ? customBase : apiBase;
+    const url = buildAssetUrl('/api/health', targetBase);
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${res.statusText || 'Health check failed'}`);
@@ -110,7 +126,14 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const data: HealthResponse = await res.json();
     setHealth(data);
     return data;
-  }, []);
+  }, [apiBase]);
+
+  const setApiBaseUrl = useCallback(async (url: string): Promise<HealthResponse> => {
+    const cleanUrl = url.trim().replace(/\/+$/, '');
+    localStorage.setItem(STORAGE_CUSTOM_API_KEY, cleanUrl);
+    setApiBaseState(cleanUrl);
+    return await refreshHealth(cleanUrl);
+  }, [refreshHealth]);
 
   useEffect(() => {
     refreshHealth().catch(() => {
@@ -122,7 +145,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const lastId = localStorage.getItem(STORAGE_LAST_JOB_KEY);
     if (lastId && !activeJob) {
-      fetch(buildAssetUrl(`/api/jobs/${lastId}`, API_BASE))
+      fetch(buildAssetUrl(`/api/jobs/${lastId}`, apiBase))
         .then((res) => {
           if (res.ok) return res.json();
           if (res.status === 404) {
@@ -142,7 +165,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         })
         .catch(() => {});
     }
-  }, []);
+  }, [apiBase]);
 
   // Fetch recent jobs details
   useEffect(() => {
@@ -153,7 +176,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     Promise.all(
       recentJobIds.map((id) =>
-        fetch(buildAssetUrl(`/api/jobs/${id}`, API_BASE))
+        fetch(buildAssetUrl(`/api/jobs/${id}`, apiBase))
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null)
       )
@@ -161,7 +184,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const validJobs = results.filter((j): j is JobDetailResponse => j !== null);
       setRecentJobs(validJobs);
     });
-  }, [recentJobIds, activeJob]);
+  }, [recentJobIds, activeJob, apiBase]);
 
   // Unified Polling Loop
   useEffect(() => {
@@ -170,7 +193,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const interval = setInterval(() => {
-      fetch(buildAssetUrl(`/api/jobs/${activeJob.job_id}`, API_BASE))
+      fetch(buildAssetUrl(`/api/jobs/${activeJob.job_id}`, apiBase))
         .then((res) => {
           if (res.ok) return res.json();
           if (res.status === 404) {
@@ -192,7 +215,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 600);
 
     return () => clearInterval(interval);
-  }, [activeJob, refreshHealth]);
+  }, [activeJob, refreshHealth, apiBase]);
 
   const startEnhance = useCallback(
     async (fileOverride?: File) => {
@@ -211,7 +234,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       formData.append('file', fileToUpload);
 
       try {
-        const res = await fetch(buildAssetUrl('/api/enhance', API_BASE), {
+        const res = await fetch(buildAssetUrl('/api/enhance', apiBase), {
           method: 'POST',
           body: formData,
         });
@@ -231,7 +254,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return updated;
         });
 
-        const jobRes = await fetch(buildAssetUrl(`/api/jobs/${newJobId}`, API_BASE));
+        const jobRes = await fetch(buildAssetUrl(`/api/jobs/${newJobId}`, apiBase));
         if (jobRes.ok) {
           const jobData = await jobRes.json();
           setActiveJob(jobData);
@@ -242,20 +265,20 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setLoading(false);
       }
     },
-    [selectedFile]
+    [selectedFile, apiBase]
   );
 
   const getVegetationAnalysis = useCallback(async (jobId: string): Promise<VegetationAnalysisResponse> => {
-    const res = await fetch(buildAssetUrl(`/api/jobs/${jobId}/analysis/vegetation`, API_BASE));
+    const res = await fetch(buildAssetUrl(`/api/jobs/${jobId}/analysis/vegetation`, apiBase));
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err?.detail?.message || 'Failed to fetch vegetation analysis.');
     }
     return res.json();
-  }, []);
+  }, [apiBase]);
 
   const runChangeDetection = useCallback(async (req: ChangeDetectionRequest): Promise<ChangeDetectionResponse> => {
-    const res = await fetch(buildAssetUrl('/api/change-detection', API_BASE), {
+    const res = await fetch(buildAssetUrl('/api/change-detection', apiBase), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -265,7 +288,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error(err?.detail?.message || 'Failed to compute change detection.');
     }
     return res.json();
-  }, []);
+  }, [apiBase]);
 
   const clearJobHistory = useCallback(() => {
     localStorage.removeItem(STORAGE_LAST_JOB_KEY);
@@ -274,6 +297,10 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRecentJobs([]);
     setActiveJob(null);
   }, []);
+
+  const resolveUrl = useCallback((path: string | null | undefined): string => {
+    return buildAssetUrl(path, apiBase);
+  }, [apiBase]);
 
   return (
     <JobContext.Provider
@@ -286,13 +313,15 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         loading,
         errorMsg,
         currentRoute,
-        isProdMissingApiBase: IS_PROD_MISSING_API_BASE,
+        apiBase,
+        isProdMissingApiBase,
         setRoute,
         setSelectedFile,
+        setApiBaseUrl,
         startEnhance,
         clearJobHistory,
         refreshHealth,
-        resolveAssetUrl,
+        resolveAssetUrl: resolveUrl,
         getVegetationAnalysis,
         runChangeDetection,
       }}
