@@ -54,7 +54,8 @@ const getInitialApiBase = (): string => {
       return custom.trim().replace(/\/+$/, '');
     }
   } catch {}
-  return (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  return envBase || 'https://suryansh-fsd--project-pheonix-backend-modalapp-fastapi-backend.modal.run';
 };
 
 export const API_BASE = getInitialApiBase();
