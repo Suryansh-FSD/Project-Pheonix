@@ -14,11 +14,24 @@ from pathlib import Path
 import mlstac
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-MANIFEST_FILE = MODELS_DIR / "manifest.json"
 MODEL_DIR = MODELS_DIR / "SEN2SRLite_RGBN"
 PINNED_REVISION = "b44156729e7b1b73764c474d5dcbaab0423841a8"
 BASE_URL = f"https://huggingface.co/tacofoundation/sen2sr/resolve/{PINNED_REVISION}/SEN2SRLite/NonReference_RGBN_x4"
 MODEL_URL = f"{BASE_URL}/mlm.json"
+
+
+def get_manifest_file(target_dir: Path) -> Path:
+    if "GEOSR_MODELS_DIR" in os.environ:
+        env_manifest = Path(os.environ["GEOSR_MODELS_DIR"]) / "manifest.json"
+        if env_manifest.exists():
+            return env_manifest
+    target_manifest = target_dir.parent / "manifest.json"
+    if target_manifest.exists():
+        return target_manifest
+    local_root_manifest = Path("/root/local_manifest.json")
+    if local_root_manifest.exists():
+        return local_root_manifest
+    return MODELS_DIR / "manifest.json"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -30,29 +43,34 @@ def compute_sha256(file_path: Path) -> str:
 
 
 def verify_manifest(target_dir: Path) -> bool:
-    if not MANIFEST_FILE.exists():
-        print(f"ERROR: Manifest not found at {MANIFEST_FILE}", file=sys.stderr)
+    manifest_file = get_manifest_file(target_dir)
+    if not manifest_file.exists():
+        print(f"ERROR: Manifest not found at {manifest_file}", file=sys.stderr)
         return False
-    with open(MANIFEST_FILE, "r") as f:
-        manifest = json.load(f)
-    files = manifest.get("files", {})
-    if not files:
-        print("ERROR: Manifest contains no file declarations.", file=sys.stderr)
+    try:
+        with open(manifest_file, "r") as f:
+            manifest = json.load(f)
+        files = manifest.get("files", {})
+        if not files:
+            print("ERROR: Manifest contains no file declarations.", file=sys.stderr)
+            return False
+        for filename, meta in files.items():
+            fp = target_dir / filename
+            if not fp.exists():
+                print(f"Missing artifact file: {filename}", file=sys.stderr)
+                return False
+            if fp.stat().st_size != meta["size"]:
+                print(f"Size mismatch on {filename}: expected {meta['size']}, got {fp.stat().st_size}", file=sys.stderr)
+                return False
+            h = compute_sha256(fp)
+            if h != meta["sha256"]:
+                print(f"SHA-256 mismatch on {filename}: expected {meta['sha256']}, got {h}", file=sys.stderr)
+                return False
+        print("All model artifact files verified against manifest SHA-256 hashes successfully.")
+        return True
+    except Exception as exc:
+        print(f"ERROR verifying manifest: {exc}", file=sys.stderr)
         return False
-    for filename, meta in files.items():
-        fp = target_dir / filename
-        if not fp.exists():
-            print(f"Missing artifact file: {filename}", file=sys.stderr)
-            return False
-        if fp.stat().st_size != meta["size"]:
-            print(f"Size mismatch on {filename}: expected {meta['size']}, got {fp.stat().st_size}", file=sys.stderr)
-            return False
-        h = compute_sha256(fp)
-        if h != meta["sha256"]:
-            print(f"SHA-256 mismatch on {filename}: expected {meta['sha256']}, got {h}", file=sys.stderr)
-            return False
-    print("All model artifact files verified against manifest SHA-256 hashes successfully.")
-    return True
 
 
 def download_and_verify(target_dir: Path = MODEL_DIR) -> bool:

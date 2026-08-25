@@ -103,8 +103,10 @@ class SuperResolutionModel:
                 self._model = compiled
                 return True
             except Exception as exc:
+                import traceback
                 self._model = None
                 self.last_error = exc
+                print(f"ERROR in SuperResolutionModel.load_model: {exc}\n{traceback.format_exc()}")
                 return False
 
     def is_ready(self) -> bool:

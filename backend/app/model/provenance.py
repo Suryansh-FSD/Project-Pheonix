@@ -19,6 +19,9 @@ def get_manifest_path() -> Path:
         p = Path(os.environ["GEOSR_MODELS_DIR"]) / "manifest.json"
         if p.exists():
             return p
+    local_manifest = Path("/root/local_manifest.json")
+    if local_manifest.exists():
+        return local_manifest
     return MANIFEST_PATH
 
 
